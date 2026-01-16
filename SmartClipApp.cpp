@@ -47,6 +47,9 @@ SmartClipApp::SmartClipApp(QObject *parent)
     settingsAction = new QAction("Settings", this);
     connect(settingsAction, &QAction::triggered, this, &SmartClipApp::onSettings);
 
+    clearHistoryAction = new QAction("Clear History", this);
+    connect(clearHistoryAction, &QAction::triggered, this, &SmartClipApp::onClearHistory);
+
     quitAction = new QAction("Quit", this);
     connect(quitAction, &QAction::triggered, this, &SmartClipApp::onQuit);
 
@@ -253,6 +256,14 @@ void SmartClipApp::onQuit()
     qApp->quit();
 }
 
+void SmartClipApp::onClearHistory()
+{
+    history.clear();
+    historyDirty = true;
+    saveHistory();
+    rebuildMenu();
+}
+
 void SmartClipApp::rebuildMenu()
 {
     trayMenu.clear();
@@ -303,6 +314,9 @@ void SmartClipApp::rebuildMenu()
 
     if (settingsAction) {
         trayMenu.addAction(settingsAction);
+    }
+    if (clearHistoryAction) {
+        trayMenu.addAction(clearHistoryAction);
     }
     if (quitAction) {
         trayMenu.addAction(quitAction);

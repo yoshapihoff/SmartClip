@@ -23,6 +23,7 @@ private slots:
     void pollClipboard();
     void onSettings();
     void onQuit();
+    void onClearHistory();
 
 private:
     struct HistoryItem {
@@ -61,4 +62,5 @@ private:
     QAction *titleAction = nullptr;
     QAction *settingsAction = nullptr;
     QAction *quitAction = nullptr;
+    QAction *clearHistoryAction = nullptr;
 };
