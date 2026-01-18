@@ -14,7 +14,15 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets)
 qt_add_executable(SmartClip
     main.cpp
     SmartClipApp.cpp
+    SettingsManager.cpp
+    SettingsDialog.cpp
+    HistoryManager.cpp
+    LaunchAgentManager.cpp
     SmartClipApp.h
+    SettingsManager.h
+    SettingsDialog.h
+    HistoryManager.h
+    LaunchAgentManager.h
     resources.qrc
 )
 

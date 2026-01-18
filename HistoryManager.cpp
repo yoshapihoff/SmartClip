@@ -63,6 +63,7 @@ void HistoryManager::addToHistory(const QString &text)
     }
 
     trimToMaxItems();
+    sortHistory(); // Сортируем после добавления
     m_dirty = true;
 }
 
@@ -119,6 +120,8 @@ void HistoryManager::loadHistory(const QString &filePath)
             if (ok && v >= 0) {
                 current.addedAtMs = v;
             }
+        } else if (key == QLatin1String("is_favorite")) {
+            current.isFavorite = (val == QLatin1String("true"));
         }
     };
 
@@ -153,6 +156,7 @@ void HistoryManager::loadHistory(const QString &filePath)
     }
 
     m_history = loaded;
+    sortHistory(); // Сортируем после загрузки
     trimToMaxItems();
     m_dirty = false;
 }
@@ -177,5 +181,66 @@ void HistoryManager::saveHistory(const QString &filePath) const
         out << "  - text_b64: " << b64 << "\n";
         out << "    usage_count: " << item.usageCount << "\n";
         out << "    added_at_ms: " << item.addedAtMs << "\n";
+        out << "    is_favorite: " << (item.isFavorite ? "true" : "false") << "\n";
     }
+}
+
+void HistoryManager::toggleFavorite(const QString &text)
+{
+    auto it = std::find_if(m_history.begin(), m_history.end(),
+                          [&text](HistoryItem &item) {
+                              return item.text == text;
+                          });
+    if (it != m_history.end()) {
+        it->isFavorite = !it->isFavorite;
+        m_dirty = true;
+        sortHistory(); // Пересортировываем после изменения
+    }
+}
+
+bool HistoryManager::isFavorite(const QString &text) const
+{
+    auto it = std::find_if(m_history.begin(), m_history.end(),
+                          [&text](const HistoryItem &item) {
+                              return item.text == text;
+                          });
+    return (it != m_history.end()) ? it->isFavorite : false;
+}
+
+void HistoryManager::sortHistory()
+{
+    std::sort(m_history.begin(), m_history.end(), [](const HistoryItem &a, const HistoryItem &b) {
+        // Сначала избранные элементы
+        if (a.isFavorite != b.isFavorite) {
+            return a.isFavorite > b.isFavorite;
+        }
+        // Затем по количеству использований
+        if (a.usageCount != b.usageCount) {
+            return a.usageCount > b.usageCount;
+        }
+        // Затем по дате создания
+        if (a.addedAtMs != b.addedAtMs) {
+            return a.addedAtMs > b.addedAtMs;
+        }
+        return a.text < b.text;
+    });
+}
+
+void HistoryManager::incrementUsageCount(const QString &text)
+{
+    auto it = std::find_if(m_history.begin(), m_history.end(),
+                          [&text](HistoryItem &item) {
+                              return item.text == text;
+                          });
+    if (it != m_history.end()) {
+        it->usageCount++;
+        m_dirty = true;
+        sortHistory(); // Пересортировываем после изменения счетчика
+    }
+}
+
+void HistoryManager::clearHistory()
+{
+    m_history.clear();
+    m_dirty = true;
 }

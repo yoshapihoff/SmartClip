@@ -3,11 +3,17 @@
 #include <QObject>
 #include <QSystemTrayIcon>
 #include <QMenu>
-#include <QStringList>
 #include <QVector>
+#include <QAction>
+#include <QHash>
+#include <QSet>
 
 class QAction;
 class QTimer;
+class SettingsManager;
+class SettingsDialog;
+class HistoryManager;
+class LaunchAgentManager;
 
 class SmartClipApp final : public QObject
 {
@@ -24,43 +30,40 @@ private slots:
     void onSettings();
     void onQuit();
     void onClearHistory();
+    void onToggleFavorite(const QString &text);
+    
+    // Методы для управления цветами избранного
+    int getFavoriteColorIndex(const QString &text);
+    void releaseFavoriteColor(const QString &text);
 
 private:
-    struct HistoryItem {
-        QString text;
-        int usageCount = 0;
-        qint64 addedAtMs = 0;
-    };
-
     void rebuildMenu();
-    void addToHistory(const QString &text);
-    void trimHistoryToMaxItems();
-    void loadSettings();
-    void saveSettings() const;
-    QString settingsFilePath() const;
     void loadHistory();
     void saveHistory() const;
+    QString settingsFilePath() const;
     QString historyFilePath() const;
-    void applyLaunchAtStartup(bool enabled);
     QString launchAgentPlistPath() const;
     static QString formatMenuLabel(const QString &text);
 
     QSystemTrayIcon trayIcon;
     QMenu trayMenu;
 
-    QVector<HistoryItem> history;
-    int maxItems = 20;
-    bool launchAtStartup = false;
-    bool saveHistoryOnExit = true;
     bool ignoreNextClipboardChange = false;
     QString lastClipboardText;
-    bool historyDirty = false;
     bool exitHandled = false;
 
     QTimer *clipboardPollTimer = nullptr;
+    SettingsManager *settingsManager = nullptr;
+    HistoryManager *historyManager = nullptr;
+    LaunchAgentManager *launchAgentManager = nullptr;
 
     QAction *titleAction = nullptr;
     QAction *settingsAction = nullptr;
     QAction *quitAction = nullptr;
     QAction *clearHistoryAction = nullptr;
+    
+    // Цвета для иконок избранного
+    static const QColor favoriteColors[8]; // 7 цветов + белый
+    static int favoriteColorIndex;
+    QHash<QString, int> favoriteItemColors; // Сохраняем закрепленные цвета за элементами
 };

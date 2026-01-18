@@ -14,6 +14,7 @@ public:
         QString text;
         int usageCount = 0;
         qint64 addedAtMs = 0;
+        bool isFavorite = false;
     };
 
     explicit HistoryManager(QObject *parent = nullptr);
@@ -29,6 +30,17 @@ public:
     void trimToMaxItems();
     void loadHistory(const QString &filePath);
     void saveHistory(const QString &filePath) const;
+    
+    // Methods for favorites
+    void toggleFavorite(const QString &text);
+    bool isFavorite(const QString &text) const;
+    void sortHistory();
+    
+    // Method for usage count
+    void incrementUsageCount(const QString &text);
+    
+    // Method to clear history
+    void clearHistory();
 
 private:
     QVector<HistoryItem> m_history;
