@@ -7,9 +7,9 @@
 #include <QAction>
 #include <QHash>
 #include <QSet>
-
-class QAction;
-class QTimer;
+#include <QEvent>
+#include <QShortcut>
+#include <QTimer>
 class SettingsManager;
 class SettingsDialog;
 class HistoryManager;
@@ -35,6 +35,15 @@ private slots:
     // Методы для управления цветами избранного
     int getFavoriteColorIndex(const QString &text);
     void releaseFavoriteColor(const QString &text);
+    
+    // Методы для маскирования элементов
+    void toggleMaskItem(const QString &text);
+    QString maskText(const QString &text) const;
+    
+    // Методы для шифрования
+    QByteArray encryptData(const QByteArray &data) const;
+    QByteArray decryptData(const QByteArray &data) const;
+    QByteArray getEncryptionKey() const;
 
 private:
     void rebuildMenu();
@@ -66,4 +75,5 @@ private:
     static const QColor favoriteColors[8]; // 7 цветов + белый
     static int favoriteColorIndex;
     QHash<QString, int> favoriteItemColors; // Сохраняем закрепленные цвета за элементами
+    QHash<QString, bool> maskedItems; // Сохраняем элементы которые нужно маскировать
 };
