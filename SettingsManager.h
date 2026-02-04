@@ -7,6 +7,9 @@ class SettingsManager final : public QObject
 {
     Q_OBJECT
 
+signals:
+    void settingsChanged();
+
 public:
     explicit SettingsManager(QObject *parent = nullptr);
     ~SettingsManager() = default;
@@ -21,9 +24,11 @@ public:
 
     void loadSettings(const QString &filePath);
     void saveSettings(const QString &filePath) const;
+    void saveCurrentSettings();
 
 private:
     int m_maxItems = 20;
     bool m_launchAtStartup = false;
     bool m_saveHistoryOnExit = true;
+    QString m_currentFilePath;
 };

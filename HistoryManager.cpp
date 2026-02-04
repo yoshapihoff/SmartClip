@@ -3,8 +3,8 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QTextStream>
-#include <QRegularExpression>
 #include <QByteArray>
+#include <QDateTime>
 #include <algorithm>
 
 HistoryManager::HistoryManager(QObject *parent)

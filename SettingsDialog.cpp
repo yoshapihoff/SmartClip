@@ -68,8 +68,15 @@ void SettingsDialog::onAccepted()
         return;
     }
     
+    // Validate max items value
+    int maxItemsValue = m_maxItemsSpin->value();
+    if (maxItemsValue < 1 || maxItemsValue > 1000) {
+        reject(); // Invalid value, reject dialog
+        return;
+    }
+    
     // Save settings
-    m_settingsManager->setMaxItems(m_maxItemsSpin->value());
+    m_settingsManager->setMaxItems(maxItemsValue);
     m_settingsManager->setLaunchAtStartup(m_launchAtStartupCheck->isChecked());
     m_settingsManager->setSaveHistoryOnExit(m_saveHistoryOnExitCheck->isChecked());
     

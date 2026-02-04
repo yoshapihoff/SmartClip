@@ -38,12 +38,11 @@ private slots:
 
 private:
     void rebuildMenu();
-    void loadHistory();
-    void saveHistory() const;
     QString settingsFilePath() const;
     QString historyFilePath() const;
-    QString launchAgentPlistPath() const;
     static QString formatMenuLabel(const QString &text);
+    void handleClipboardChange();
+    void handleExitCleanup();
 
     QSystemTrayIcon trayIcon;
     QMenu trayMenu;

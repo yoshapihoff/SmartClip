@@ -48,3 +48,6 @@ if(APPLE)
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/Info.plist"
     )
 endif()
+
+enable_testing()
+add_subdirectory(tests)

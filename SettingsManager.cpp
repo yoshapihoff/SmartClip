@@ -29,6 +29,8 @@ void SettingsManager::setMaxItems(int maxItems)
 {
     if (m_maxItems != maxItems) {
         m_maxItems = maxItems;
+        saveCurrentSettings();
+        emit settingsChanged();
     }
 }
 
@@ -36,6 +38,8 @@ void SettingsManager::setLaunchAtStartup(bool enabled)
 {
     if (m_launchAtStartup != enabled) {
         m_launchAtStartup = enabled;
+        saveCurrentSettings();
+        emit settingsChanged();
     }
 }
 
@@ -43,11 +47,15 @@ void SettingsManager::setSaveHistoryOnExit(bool enabled)
 {
     if (m_saveHistoryOnExit != enabled) {
         m_saveHistoryOnExit = enabled;
+        saveCurrentSettings();
+        emit settingsChanged();
     }
 }
 
 void SettingsManager::loadSettings(const QString &filePath)
 {
+    m_currentFilePath = filePath;
+    
     const QFileInfo fi(filePath);
     if (!fi.dir().exists()) {
         QDir().mkpath(fi.dir().absolutePath());
@@ -108,4 +116,11 @@ void SettingsManager::saveSettings(const QString &filePath) const
     out << "max_items: " << m_maxItems << "\n";
     out << "launch_at_startup: " << (m_launchAtStartup ? "true" : "false") << "\n";
     out << "save_history_on_exit: " << (m_saveHistoryOnExit ? "true" : "false") << "\n";
+}
+
+void SettingsManager::saveCurrentSettings()
+{
+    if (!m_currentFilePath.isEmpty()) {
+        saveSettings(m_currentFilePath);
+    }
 }

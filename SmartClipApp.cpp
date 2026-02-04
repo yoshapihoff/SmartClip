@@ -14,18 +14,10 @@
 #include <QDebug>
 #include <QMessageBox>
 #include <QDateTime>
-#include <QDialog>
-#include <QDialogButtonBox>
-#include <QCheckBox>
-#include <QFormLayout>
-#include <QRegularExpression>
-#include <QSpinBox>
 #include <QTextStream>
 #include <QTimer>
-#include <QProcess>
 #include <QPixmap>
 #include <QPainter>
-
 #include <algorithm>
 
 #if defined(Q_OS_MAC)
@@ -58,11 +50,16 @@ SmartClipApp::SmartClipApp(QObject *parent)
     // Load settings
     settingsManager->loadSettings(settingsFilePath());
     
+    // Connect to settings changes for auto-save
+    connect(settingsManager, &SettingsManager::settingsChanged, this, [this]() {
+        // Settings are automatically saved by SettingsManager now
+    });
+    
     // Apply launch at startup setting
     launchAgentManager->applyLaunchAtStartup(settingsManager->launchAtStartup());
     
     if (settingsManager->saveHistoryOnExit()) {
-        loadHistory();
+        historyManager->loadHistory(historyFilePath());
     } else {
         QFile::remove(historyFilePath());
     }
@@ -97,18 +94,7 @@ SmartClipApp::SmartClipApp(QObject *parent)
     });
 
     connect(qApp, &QCoreApplication::aboutToQuit, this, [this]() {
-        if (exitHandled) {
-            return;
-        }
-        exitHandled = true;
-
-        if (settingsManager->saveHistoryOnExit()) {
-            if (historyManager->isDirty()) {
-                saveHistory();
-            }
-        } else {
-            QFile::remove(historyFilePath());
-        }
+        handleExitCleanup();
     });
 
     if (QClipboard *clipboard = QApplication::clipboard()) {
@@ -139,7 +125,7 @@ void SmartClipApp::show()
     trayIcon.show();
 }
 
-void SmartClipApp::onClipboardChanged()
+void SmartClipApp::handleClipboardChange()
 {
     QClipboard *clipboard = QApplication::clipboard();
     if (!clipboard) {
@@ -168,6 +154,11 @@ void SmartClipApp::onClipboardChanged()
     rebuildMenu();
 }
 
+void SmartClipApp::onClipboardChanged()
+{
+    handleClipboardChange();
+}
+
 void SmartClipApp::pollClipboard()
 {
     QClipboard *clipboard = QApplication::clipboard();
@@ -175,32 +166,19 @@ void SmartClipApp::pollClipboard()
         return;
     }
 
-    const QString text = clipboard->text(QClipboard::Clipboard);
+    const QString currentText = clipboard->text(QClipboard::Clipboard);
     
-    if (ignoreNextClipboardChange) {
-        ignoreNextClipboardChange = false;
-        lastClipboardText = text;
-        return;
+    // Проверяем, изменился ли текст буфера обмена
+    if (currentText != lastClipboardText && !currentText.trimmed().isEmpty()) {
+        handleClipboardChange();
     }
-
-    if (text.trimmed().isEmpty()) {
-        return;
-    }
-
-    if (text == lastClipboardText) {
-        return;
-    }
-    lastClipboardText = text;
-    
-    historyManager->addToHistory(text);
-    rebuildMenu();
 }
 
 void SmartClipApp::onSettings()
 {
     SettingsDialog dialog(settingsManager);
     if (dialog.exec() == QDialog::Accepted) {
-        // Settings were saved in the dialog
+        // Settings are automatically saved by SettingsManager when changed
         // Apply launch at startup if changed
         launchAgentManager->applyLaunchAtStartup(settingsManager->launchAtStartup());
         
@@ -212,18 +190,25 @@ void SmartClipApp::onSettings()
     }
 }
 
+void SmartClipApp::handleExitCleanup()
+{
+    if (exitHandled) {
+        return;
+    }
+    exitHandled = true;
+
+    if (settingsManager->saveHistoryOnExit()) {
+        if (historyManager->isDirty()) {
+            historyManager->saveHistory(historyFilePath());
+        }
+    } else {
+        QFile::remove(historyFilePath());
+    }
+}
+
 void SmartClipApp::onQuit()
 {
-    if (!exitHandled) {
-        exitHandled = true;
-        if (settingsManager->saveHistoryOnExit()) {
-            if (historyManager->isDirty()) {
-                saveHistory();
-            }
-        } else {
-            QFile::remove(historyFilePath());
-        }
-    }
+    handleExitCleanup();
     qApp->quit();
 }
 
@@ -361,16 +346,6 @@ QString SmartClipApp::settingsFilePath() const
 QString SmartClipApp::historyFilePath() const
 {
     return QDir::homePath() + QLatin1String("/.smartclip/history.yml");
-}
-
-void SmartClipApp::loadHistory()
-{
-    historyManager->loadHistory(historyFilePath());
-}
-
-void SmartClipApp::saveHistory() const
-{
-    historyManager->saveHistory(historyFilePath());
 }
 
 QString SmartClipApp::formatMenuLabel(const QString &text)
