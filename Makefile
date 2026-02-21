@@ -13,7 +13,7 @@ BUILD_TYPE   ?= Release
 # Обязательно указать путь до Qt6:
 # make QT_PATH=/path/to/Qt/6.x.x
 
-QT_PATH ?=
+QT_PATH=/Volumes/HDD/qt/6.5.3/macos
 
 # =========================
 # Platform detection

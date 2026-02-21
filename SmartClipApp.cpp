@@ -8,21 +8,13 @@
 #include <QClipboard>
 #include <QDir>
 #include <QFile>
-#include <QFileInfo>
-#include <QByteArray>
 #include <QIcon>
 #include <QDebug>
 #include <QMessageBox>
-#include <QDateTime>
 #include <QTextStream>
 #include <QTimer>
 #include <QPixmap>
 #include <QPainter>
-#include <algorithm>
-
-#if defined(Q_OS_MAC)
- #include <unistd.h>
-#endif
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
  #include <QStyleHints>
@@ -39,8 +31,6 @@ const QColor SmartClipApp::favoriteColors[8] = {
     QColor(0, 191, 255), // синий
     QColor(255, 255, 255) // белый (для 8+ элементов)
 };
-int SmartClipApp::favoriteColorIndex = 0;
-
 SmartClipApp::SmartClipApp(QObject *parent)
     : QObject(parent)
     , settingsManager(new SettingsManager(this))
@@ -59,8 +49,16 @@ SmartClipApp::SmartClipApp(QObject *parent)
     launchAgentManager->applyLaunchAtStartup(settingsManager->launchAtStartup());
     
     if (settingsManager->saveHistoryOnExit()) {
-        historyManager->loadHistory(historyFilePath());
+        historyManager->loadHistory(historyFilePath(), settingsManager->maxItems());
+        // Восстанавливаем закреплённые цвета избранного из загруженной истории
+        favoriteItemColors.clear();
+        for (const auto &item : historyManager->history()) {
+            if (item.favoriteColorIndex >= 0) {
+                favoriteItemColors[item.text] = item.favoriteColorIndex;
+            }
+        }
     } else {
+        historyManager->setMaxItems(settingsManager->maxItems());
         QFile::remove(historyFilePath());
     }
     updateIcon();
@@ -227,9 +225,11 @@ void SmartClipApp::onToggleFavorite(const QString &text)
         if (!favoriteItemColors.contains(text)) {
             favoriteItemColors[text] = getFavoriteColorIndex(text);
         }
+        historyManager->setFavoriteColor(text, favoriteItemColors[text]);
     } else {
         // Если элемент удаляется из избранного, освобождаем цвет
         releaseFavoriteColor(text);
+        historyManager->setFavoriteColor(text, -1);
     }
     
     rebuildMenu();
@@ -281,10 +281,12 @@ void SmartClipApp::rebuildMenu()
 
     for (int i = 0; i < history.size(); ++i) {
         const QString text = history.at(i).text;
-        QAction *action = trayMenu.addAction(formatMenuLabel(text));
+        const bool maskThis = history.at(i).maskInMenu;
+        const QString labelText = maskThis ? maskForMenuDisplay(text) : text;
+        QAction *action = trayMenu.addAction(formatMenuLabel(labelText));
 
         // Показываем иконку избранного если элемент в избранном
-        if (history.at(i).isFavorite) {
+        if (history.at(i).favoriteColorIndex != -1) {
             action->setIcon(QIcon());
             action->setIconVisibleInMenu(true);
             QPixmap pixmap(12, 12);
@@ -302,7 +304,12 @@ void SmartClipApp::rebuildMenu()
         }
         
         connect(action, &QAction::triggered, this, [this, text]() {
-            if (QApplication::keyboardModifiers() & Qt::ControlModifier) {
+            const Qt::KeyboardModifiers mods = QApplication::keyboardModifiers();
+            if (mods & Qt::ShiftModifier) {
+                // Ctrl+Shift+Click — переключить зашифрованное отображение в меню
+                historyManager->setMaskInMenu(text, !historyManager->maskInMenu(text));
+                rebuildMenu();
+            } else if (mods & Qt::ControlModifier) {
                 onToggleFavorite(text);
             } else {
                 // Обычное копирование в буфер
@@ -360,6 +367,27 @@ QString SmartClipApp::formatMenuLabel(const QString &text)
         s = s.left(maxLen - 3) + "...";
     }
     return s;
+}
+
+QString SmartClipApp::maskForMenuDisplay(const QString &text)
+{
+    const int len = text.length();
+    if (len == 0) {
+        return text;
+    }
+    int head = 1, tail = 1;
+    if (len >= 10) {
+        head = 3;
+        tail = 3;
+    } else if (len >= 7) {
+        head = 2;
+        tail = 2;
+    }
+    if (len <= head + tail) {
+        return text;
+    }
+    const int mid = len - head - tail;
+    return text.left(head) + QString(mid, QChar('*')) + text.right(tail);
 }
 
 void SmartClipApp::updateIcon()

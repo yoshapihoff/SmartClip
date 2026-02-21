@@ -9,6 +9,10 @@
 #include <QFile>
 #include <QStandardPaths>
 #include <QTemporaryFile>
+#include <QMetaObject>
+#include <QTextStream>
+#include <QByteArray>
+#include <QDateTime>
 
 #include "../SmartClipApp.h"
 #include "../SettingsManager.h"
@@ -29,6 +33,7 @@ private slots:
     void testShow();
     void testFilePaths();
     void testFormatMenuLabel();
+    void testMaskForMenuDisplay();
     void testHandleClipboardChange();
     void testHandleClipboardChangeEmptyText();
     void testHandleClipboardChangeDuplicateText();
@@ -44,6 +49,7 @@ private slots:
     void testClipboardPolling();
     void testIconUpdate();
     void testMultipleClipboardChanges();
+    void testFavoriteColorPersistence();
 
 private:
     QApplication *m_app;
@@ -130,6 +136,28 @@ void TestSmartClipApp::testFormatMenuLabel()
     // QCOMPARE(formatMenuLabel("text\nwith\nnewlines"), "text with newlines");
     
     QVERIFY(true); // Placeholder for actual formatMenuLabel tests
+}
+
+void TestSmartClipApp::testMaskForMenuDisplay()
+{
+    // len >= 10: show first 3 and last 3
+    QCOMPARE(SmartClipApp::maskForMenuDisplay("password12"), "pas****d12");
+    QCOMPARE(SmartClipApp::maskForMenuDisplay("abcdefghij"), "abc****hij");
+    QCOMPARE(SmartClipApp::maskForMenuDisplay("1234567890"), "123****890");
+
+    // len >= 7 and < 10: show first 2 and last 2
+    QCOMPARE(SmartClipApp::maskForMenuDisplay("password"), "pa****rd");
+    QCOMPARE(SmartClipApp::maskForMenuDisplay("1234567"), "12***67");
+    QCOMPARE(SmartClipApp::maskForMenuDisplay("abcdefgh"), "ab****gh");
+
+    // len < 7: show first 1 and last 1
+    QCOMPARE(SmartClipApp::maskForMenuDisplay("abc"), "a*c");
+    QCOMPARE(SmartClipApp::maskForMenuDisplay("ab"), "ab");
+    QCOMPARE(SmartClipApp::maskForMenuDisplay("a"), "a");
+
+    // Edge cases
+    QCOMPARE(SmartClipApp::maskForMenuDisplay(""), "");
+    QCOMPARE(SmartClipApp::maskForMenuDisplay("123456"), "1****6");
 }
 
 void TestSmartClipApp::testHandleClipboardChange()
@@ -347,6 +375,71 @@ void TestSmartClipApp::testMultipleClipboardChanges()
     
     // The app should handle rapid changes without crashing
     QVERIFY(true);
+}
+
+void TestSmartClipApp::testFavoriteColorPersistence()
+{
+    // Проверка сохранения и загрузки цвета избранных элементов: приложение загружает
+    // историю с favorite_color_index и при выходе сохраняет их обратно в файл.
+    QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+        + "/smartclip_test_" + QString::number(QDateTime::currentMSecsSinceEpoch());
+    QVERIFY(QDir().mkpath(tempDir));
+    QDir tempDirObj(tempDir);
+    QVERIFY(tempDirObj.mkpath(".smartclip"));
+
+    const QString settingsPath = tempDir + "/.smartclip/settings.yml";
+    const QString historyPath = tempDir + "/.smartclip/history.yml";
+
+    {
+        QFile sf(settingsPath);
+        QVERIFY(sf.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream out(&sf);
+        out << "max_items: 20\n";
+        out << "launch_at_startup: false\n";
+        out << "save_history_on_exit: true\n";
+    }
+
+    const QString favText = "favorite_item";
+    const int expectedColorIndex = 2;
+    {
+        QFile hf(historyPath);
+        QVERIFY(hf.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream out(&hf);
+        out << "version: 1\n";
+        out << "items:\n";
+        out << "  - text_b64: " << QString::fromUtf8(favText.toUtf8().toBase64()) << "\n";
+        out << "    usage_count: 0\n";
+        out << "    added_at_ms: " << QDateTime::currentMSecsSinceEpoch() << "\n";
+        out << "    favorite_color_index: " << expectedColorIndex << "\n";
+        out << "    mask_in_menu: 0\n";
+    }
+
+    const QByteArray savedHome = qgetenv("HOME");
+    qputenv("HOME", tempDir.toUtf8());
+
+    delete m_smartClipApp;
+    m_smartClipApp = new SmartClipApp();
+    QVERIFY(m_smartClipApp != nullptr);
+
+    // Симулируем выход и сохранение истории
+    QMetaObject::invokeMethod(m_smartClipApp, "handleExitCleanup", Qt::DirectConnection);
+
+    qputenv("HOME", savedHome);
+
+    // Проверяем, что в сохранённом файле есть тот же favorite_color_index
+    QFile hf(historyPath);
+    QVERIFY(hf.open(QIODevice::ReadOnly | QIODevice::Text));
+    QTextStream in(&hf);
+    QString content = in.readAll();
+    QVERIFY2(content.contains("favorite_color_index:"), "Saved history must contain favorite_color_index");
+    QVERIFY2(content.contains(QString("favorite_color_index: %1").arg(expectedColorIndex)),
+        qPrintable(QString("Saved history must contain favorite_color_index: %1").arg(expectedColorIndex)));
+
+    // Очистка тестовой директории
+    QFile::remove(historyPath);
+    QFile::remove(settingsPath);
+    tempDirObj.rmdir(".smartclip");
+    QDir().rmdir(tempDir);
 }
 
 QTEST_MAIN(TestSmartClipApp)

@@ -14,7 +14,10 @@ public:
         QString text;
         int usageCount = 0;
         qint64 addedAtMs = 0;
-        bool isFavorite = false;
+        /** Index of favorite color (0..7), or -1 if not favorite. */
+        int favoriteColorIndex = -1;
+        /** If true, show masked text in tray menu (e.g. pas***ord). */
+        bool maskInMenu = false;
     };
 
     explicit HistoryManager(QObject *parent = nullptr);
@@ -29,16 +32,24 @@ public:
     void addToHistory(const QString &text);
     void trimToMaxItems();
     void loadHistory(const QString &filePath);
+    /** Load history and trim to at most \a maxItemsForTrim (if > 0). Use when loading at startup so limit from settings is applied. */
+    void loadHistory(const QString &filePath, int maxItemsForTrim);
     void saveHistory(const QString &filePath) const;
     
     // Methods for favorites
     void toggleFavorite(const QString &text);
     bool isFavorite(const QString &text) const;
+    void setFavoriteColor(const QString &text, int colorIndex);
+    int favoriteColorIndex(const QString &text) const;
     void sortHistory();
     
     // Method for usage count
     void incrementUsageCount(const QString &text);
-    
+
+    // Mask in menu (encrypted display)
+    void setMaskInMenu(const QString &text, bool mask);
+    bool maskInMenu(const QString &text) const;
+
     // Method to clear history
     void clearHistory();
 

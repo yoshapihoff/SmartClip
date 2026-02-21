@@ -23,6 +23,9 @@ public:
     explicit SmartClipApp(QObject *parent = nullptr);
     void show();
 
+    /** Masks string for menu: first+last N chars visible, rest '*'. N: len>=10 -> 3, len>=7 -> 2, else 1. Used by tests. */
+    static QString maskForMenuDisplay(const QString &text);
+
 private slots:
     void updateIcon();
     void onClipboardChanged();
@@ -63,6 +66,5 @@ private:
     
     // Цвета для иконок избранного
     static const QColor favoriteColors[8]; // 7 цветов + белый
-    static int favoriteColorIndex;
     QHash<QString, int> favoriteItemColors; // Сохраняем закрепленные цвета за элементами
 };

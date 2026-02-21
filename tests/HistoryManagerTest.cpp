@@ -21,14 +21,21 @@ private slots:
     void testAddEmptyText();
     void testAddDuplicateText();
     void testTrimToMaxItems();
+    void testTrimToMaxItems_prefersToRemoveNonFavorite();
+    void testTrimToMaxItems_prefersToRemoveLowerUsageCount();
+    void testTrimToMaxItems_removesOldestWhenSamePriority();
     void testClearHistory();
     void testToggleFavorite();
     void testIsFavorite();
     void testIncrementUsageCount();
     void testSortHistory();
     void testLoadSaveHistory();
+    void testLoadSaveHistory_maskInMenu();
+    void testLoadSaveHistory_favoriteColorIndex();
     void testLoadNonExistentFile();
     void testLoadCorruptedFile();
+    void testSetMaskInMenu();
+    void testMaskInMenu();
 
 private:
     HistoryManager *m_historyManager;
@@ -66,10 +73,9 @@ void TestHistoryManager::testMaxItems()
     QCOMPARE(m_historyManager->maxItems(), 10);
     QCOMPARE(m_historyManager->isDirty(), true);
     
-    // Test setting same value (should not change dirty flag)
-    m_historyManager->clearDirty();
+    // Setting same value does not clear dirty (only loadHistory clears it)
     m_historyManager->setMaxItems(10);
-    QCOMPARE(m_historyManager->isDirty(), false);
+    QCOMPARE(m_historyManager->isDirty(), true);
 }
 
 void TestHistoryManager::testDirtyFlag()
@@ -78,9 +84,6 @@ void TestHistoryManager::testDirtyFlag()
     
     m_historyManager->addToHistory("test");
     QCOMPARE(m_historyManager->isDirty(), true);
-    
-    m_historyManager->clearDirty();
-    QCOMPARE(m_historyManager->isDirty(), false);
 }
 
 void TestHistoryManager::testAddToHistory()
@@ -90,7 +93,7 @@ void TestHistoryManager::testAddToHistory()
     QCOMPARE(m_historyManager->history()[0].text, "test item");
     QCOMPARE(m_historyManager->history()[0].usageCount, 0);
     QVERIFY(m_historyManager->history()[0].addedAtMs > 0);
-    QCOMPARE(m_historyManager->history()[0].isFavorite, false);
+    QCOMPARE(m_historyManager->history()[0].favoriteColorIndex, -1);
     QCOMPARE(m_historyManager->isDirty(), true);
 }
 
@@ -132,7 +135,7 @@ void TestHistoryManager::testTrimToMaxItems()
     m_historyManager->addToHistory("item4");
     QCOMPARE(m_historyManager->history().size(), 3);
     
-    // Check that oldest item was removed
+    // При равных isFavorite и usageCount удаляется самый старый по времени добавления
     bool found = false;
     for (const auto &item : m_historyManager->history()) {
         if (item.text == "item1") {
@@ -141,6 +144,71 @@ void TestHistoryManager::testTrimToMaxItems()
         }
     }
     QCOMPARE(found, false);
+}
+
+void TestHistoryManager::testTrimToMaxItems_prefersToRemoveNonFavorite()
+{
+    m_historyManager->setMaxItems(4);
+    m_historyManager->addToHistory("item1");
+    m_historyManager->addToHistory("item2");
+    m_historyManager->addToHistory("item3");
+    m_historyManager->addToHistory("item4");
+    m_historyManager->toggleFavorite("item2");
+    QCOMPARE(m_historyManager->history().size(), 4);
+    
+    m_historyManager->setMaxItems(3);
+    QCOMPARE(m_historyManager->history().size(), 3);
+    
+    // Избранный item2 должен остаться; удалён один из неизбранных (первый по приоритету — старый с малым usageCount)
+    QVERIFY(m_historyManager->isFavorite("item2"));
+    bool item2Found = false;
+    for (const auto &item : m_historyManager->history()) {
+        if (item.text == "item2") item2Found = true;
+    }
+    QVERIFY(item2Found);
+}
+
+void TestHistoryManager::testTrimToMaxItems_prefersToRemoveLowerUsageCount()
+{
+    m_historyManager->setMaxItems(4);
+    m_historyManager->addToHistory("item1");
+    m_historyManager->addToHistory("item2");
+    m_historyManager->addToHistory("item3");
+    m_historyManager->addToHistory("item4");
+    m_historyManager->incrementUsageCount("item2");
+    m_historyManager->incrementUsageCount("item3");
+    QCOMPARE(m_historyManager->history().size(), 4);
+    
+    m_historyManager->setMaxItems(3);
+    QCOMPARE(m_historyManager->history().size(), 3);
+    
+    // Удалён элемент с меньшим usageCount (item1 или item4); item2 и item3 с usageCount=1 должны остаться
+    bool item1Found = false;
+    for (const auto &item : m_historyManager->history()) {
+        if (item.text == "item1") item1Found = true;
+    }
+    QCOMPARE(item1Found, false); // item1 добавлен первым (старейший при равном usageCount=0 с item4)
+}
+
+void TestHistoryManager::testTrimToMaxItems_removesOldestWhenSamePriority()
+{
+    m_historyManager->setMaxItems(3);
+    m_historyManager->addToHistory("old");
+    QTest::qWait(5);
+    m_historyManager->addToHistory("mid");
+    QTest::qWait(5);
+    m_historyManager->addToHistory("new");
+    QCOMPARE(m_historyManager->history().size(), 3);
+    
+    m_historyManager->addToHistory("newest");
+    QCOMPARE(m_historyManager->history().size(), 3);
+    
+    // При равных isFavorite и usageCount удаляется самый старый — "old"
+    bool oldFound = false;
+    for (const auto &item : m_historyManager->history()) {
+        if (item.text == "old") oldFound = true;
+    }
+    QCOMPARE(oldFound, false);
 }
 
 void TestHistoryManager::testClearHistory()
@@ -222,6 +290,17 @@ void TestHistoryManager::testSortHistory()
     QCOMPARE(history[0].text, "favorite item"); // Favorite first
     QCOMPARE(history[1].text, "popular item"); // High usage count
     QCOMPARE(history[2].text, "normal item");   // Normal
+    
+    // Test that recent usage affects sorting
+    QTest::qWait(10);
+    m_historyManager->incrementUsageCount("normal item");
+    
+    // Now normal item should move up due to recent usage
+    // But popular item still has higher usage count (2 vs 1)
+    const auto &updatedHistory = m_historyManager->history();
+    QCOMPARE(updatedHistory[0].text, "favorite item"); // Still favorite first
+    QCOMPARE(updatedHistory[1].text, "popular item"); // Still higher usage count
+    QCOMPARE(updatedHistory[2].text, "normal item");   // Lower usage count despite recent time
 }
 
 void TestHistoryManager::testLoadSaveHistory()
@@ -259,6 +338,98 @@ void TestHistoryManager::testLoadSaveHistory()
     }
     QVERIFY(found1 && found2);
     QCOMPARE(m_historyManager->isDirty(), false);
+}
+
+void TestHistoryManager::testLoadSaveHistory_maskInMenu()
+{
+    m_historyManager->addToHistory("item1");
+    m_historyManager->addToHistory("item2");
+    m_historyManager->setMaskInMenu("item1", true);
+    m_historyManager->setMaskInMenu("item2", false);
+
+    m_historyManager->saveHistory(m_testFilePath);
+    QVERIFY(QFile::exists(m_testFilePath));
+
+    m_historyManager->clearHistory();
+    m_historyManager->loadHistory(m_testFilePath);
+
+    QCOMPARE(m_historyManager->history().size(), 2);
+    QCOMPARE(m_historyManager->maskInMenu("item1"), true);
+    QCOMPARE(m_historyManager->maskInMenu("item2"), false);
+
+    bool found1 = false, found2 = false;
+    for (const auto &item : m_historyManager->history()) {
+        if (item.text == "item1") {
+            QCOMPARE(item.maskInMenu, true);
+            found1 = true;
+        } else if (item.text == "item2") {
+            QCOMPARE(item.maskInMenu, false);
+            found2 = true;
+        }
+    }
+    QVERIFY(found1 && found2);
+}
+
+void TestHistoryManager::testLoadSaveHistory_favoriteColorIndex()
+{
+    m_historyManager->addToHistory("fav_red");
+    m_historyManager->addToHistory("fav_green");
+    m_historyManager->addToHistory("normal");
+    m_historyManager->toggleFavorite("fav_red");
+    m_historyManager->toggleFavorite("fav_green");
+    m_historyManager->setFavoriteColor("fav_red", 0);
+    m_historyManager->setFavoriteColor("fav_green", 3);
+
+    m_historyManager->saveHistory(m_testFilePath);
+    QVERIFY(QFile::exists(m_testFilePath));
+
+    m_historyManager->clearHistory();
+    m_historyManager->loadHistory(m_testFilePath);
+
+    QCOMPARE(m_historyManager->history().size(), 3);
+    QCOMPARE(m_historyManager->favoriteColorIndex("fav_red"), 0);
+    QCOMPARE(m_historyManager->favoriteColorIndex("fav_green"), 3);
+    QCOMPARE(m_historyManager->favoriteColorIndex("normal"), -1);
+
+    for (const auto &item : m_historyManager->history()) {
+        if (item.text == "fav_red")
+            QCOMPARE(item.favoriteColorIndex, 0);
+        else if (item.text == "fav_green")
+            QCOMPARE(item.favoriteColorIndex, 3);
+        else if (item.text == "normal")
+            QCOMPARE(item.favoriteColorIndex, -1);
+    }
+}
+
+void TestHistoryManager::testSetMaskInMenu()
+{
+    m_historyManager->addToHistory("password");
+    QCOMPARE(m_historyManager->history()[0].maskInMenu, false);
+
+    m_historyManager->setMaskInMenu("password", true);
+    QCOMPARE(m_historyManager->history()[0].maskInMenu, true);
+    QCOMPARE(m_historyManager->isDirty(), true);
+
+    m_historyManager->setMaskInMenu("password", false);
+    QCOMPARE(m_historyManager->history()[0].maskInMenu, false);
+
+    // Non-existent item: no crash
+    m_historyManager->setMaskInMenu("non-existent", true);
+    QCOMPARE(m_historyManager->history().size(), 1);
+}
+
+void TestHistoryManager::testMaskInMenu()
+{
+    m_historyManager->addToHistory("item1");
+    m_historyManager->addToHistory("item2");
+
+    QCOMPARE(m_historyManager->maskInMenu("item1"), false);
+    QCOMPARE(m_historyManager->maskInMenu("item2"), false);
+    QCOMPARE(m_historyManager->maskInMenu("non-existent"), false);
+
+    m_historyManager->setMaskInMenu("item1", true);
+    QCOMPARE(m_historyManager->maskInMenu("item1"), true);
+    QCOMPARE(m_historyManager->maskInMenu("item2"), false);
 }
 
 void TestHistoryManager::testLoadNonExistentFile()

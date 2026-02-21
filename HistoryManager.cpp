@@ -70,16 +70,22 @@ void HistoryManager::addToHistory(const QString &text)
 void HistoryManager::trimToMaxItems()
 {
     while (m_history.size() > m_maxItems) {
-        int oldestIndex = 0;
-        qint64 oldestTs = m_history.at(0).addedAtMs;
+        int removeIndex = 0;
         for (int i = 1; i < m_history.size(); ++i) {
-            const qint64 ts = m_history.at(i).addedAtMs;
-            if (ts < oldestTs) {
-                oldestTs = ts;
-                oldestIndex = i;
+            const HistoryItem &cand = m_history.at(i);
+            const HistoryItem &current = m_history.at(removeIndex);
+            // Приоритет удаления: неизбранные → с меньшим числом обращений → самые старые по времени добавления
+            const bool candFavorite = (cand.favoriteColorIndex != -1);
+            const bool currentFavorite = (current.favoriteColorIndex != -1);
+            const bool candIsWorseToKeep =
+                (!candFavorite && currentFavorite)
+                || (candFavorite == currentFavorite && cand.usageCount < current.usageCount)
+                || (candFavorite == currentFavorite && cand.usageCount == current.usageCount && cand.addedAtMs < current.addedAtMs);
+            if (candIsWorseToKeep) {
+                removeIndex = i;
             }
         }
-        m_history.removeAt(oldestIndex);
+        m_history.removeAt(removeIndex);
     }
 }
 
@@ -120,8 +126,15 @@ void HistoryManager::loadHistory(const QString &filePath)
             if (ok && v >= 0) {
                 current.addedAtMs = v;
             }
-        } else if (key == QLatin1String("is_favorite")) {
-            current.isFavorite = (val == QLatin1String("true"));
+        } else if (key == QLatin1String("favorite_color_index")) {
+            bool ok = false;
+            const int v = val.toInt(&ok);
+            if (ok && v >= -1 && v <= 7) {
+                current.favoriteColorIndex = v;
+            }
+        } else if (key == QLatin1String("mask_in_menu")) {
+            const QString lower = val.toLower();
+            current.maskInMenu = (lower == QLatin1String("1") || lower == QLatin1String("true") || lower == QLatin1String("yes"));
         }
     };
 
@@ -161,6 +174,14 @@ void HistoryManager::loadHistory(const QString &filePath)
     m_dirty = false;
 }
 
+void HistoryManager::loadHistory(const QString &filePath, int maxItemsForTrim)
+{
+    if (maxItemsForTrim > 0) {
+        m_maxItems = maxItemsForTrim;
+    }
+    loadHistory(filePath);
+}
+
 void HistoryManager::saveHistory(const QString &filePath) const
 {
     const QFileInfo fi(filePath);
@@ -181,7 +202,8 @@ void HistoryManager::saveHistory(const QString &filePath) const
         out << "  - text_b64: " << b64 << "\n";
         out << "    usage_count: " << item.usageCount << "\n";
         out << "    added_at_ms: " << item.addedAtMs << "\n";
-        out << "    is_favorite: " << (item.isFavorite ? "true" : "false") << "\n";
+        out << "    favorite_color_index: " << item.favoriteColorIndex << "\n";
+        out << "    mask_in_menu: " << (item.maskInMenu ? "1" : "0") << "\n";
     }
 }
 
@@ -192,7 +214,11 @@ void HistoryManager::toggleFavorite(const QString &text)
                               return item.text == text;
                           });
     if (it != m_history.end()) {
-        it->isFavorite = !it->isFavorite;
+        if (it->favoriteColorIndex != -1) {
+            it->favoriteColorIndex = -1;
+        } else {
+            it->favoriteColorIndex = 0; // временно; SmartClipApp вызовет setFavoriteColor с нужным цветом
+        }
         m_dirty = true;
         sortHistory(); // Пересортировываем после изменения
     }
@@ -200,19 +226,38 @@ void HistoryManager::toggleFavorite(const QString &text)
 
 bool HistoryManager::isFavorite(const QString &text) const
 {
+    return favoriteColorIndex(text) != -1;
+}
+
+void HistoryManager::setFavoriteColor(const QString &text, int colorIndex)
+{
+    auto it = std::find_if(m_history.begin(), m_history.end(),
+                          [&text](HistoryItem &item) {
+                              return item.text == text;
+                          });
+    if (it != m_history.end()) {
+        it->favoriteColorIndex = (colorIndex >= -1 && colorIndex <= 7) ? colorIndex : -1;
+        m_dirty = true;
+    }
+}
+
+int HistoryManager::favoriteColorIndex(const QString &text) const
+{
     auto it = std::find_if(m_history.begin(), m_history.end(),
                           [&text](const HistoryItem &item) {
                               return item.text == text;
                           });
-    return (it != m_history.end()) ? it->isFavorite : false;
+    return (it != m_history.end()) ? it->favoriteColorIndex : -1;
 }
 
 void HistoryManager::sortHistory()
 {
     std::sort(m_history.begin(), m_history.end(), [](const HistoryItem &a, const HistoryItem &b) {
-        // Сначала избранные элементы
-        if (a.isFavorite != b.isFavorite) {
-            return a.isFavorite > b.isFavorite;
+        // Сначала избранные элементы (favoriteColorIndex != -1)
+        const bool aFav = (a.favoriteColorIndex != -1);
+        const bool bFav = (b.favoriteColorIndex != -1);
+        if (aFav != bFav) {
+            return aFav > bFav;
         }
         // Затем по количеству использований
         if (a.usageCount != b.usageCount) {
@@ -237,6 +282,27 @@ void HistoryManager::incrementUsageCount(const QString &text)
         m_dirty = true;
         sortHistory(); // Пересортировываем после изменения счетчика
     }
+}
+
+void HistoryManager::setMaskInMenu(const QString &text, bool mask)
+{
+    auto it = std::find_if(m_history.begin(), m_history.end(),
+                          [&text](HistoryItem &item) {
+                              return item.text == text;
+                          });
+    if (it != m_history.end()) {
+        it->maskInMenu = mask;
+        m_dirty = true;
+    }
+}
+
+bool HistoryManager::maskInMenu(const QString &text) const
+{
+    auto it = std::find_if(m_history.begin(), m_history.end(),
+                          [&text](const HistoryItem &item) {
+                              return item.text == text;
+                          });
+    return (it != m_history.end()) ? it->maskInMenu : false;
 }
 
 void HistoryManager::clearHistory()
