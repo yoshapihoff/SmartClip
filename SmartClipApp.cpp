@@ -140,6 +140,7 @@ void SmartClipApp::handleClipboardChange()
     }
 
     if (text.trimmed().isEmpty()) {
+        lastClipboardText = text;
         return;
     }
 
@@ -213,6 +214,7 @@ void SmartClipApp::onQuit()
 void SmartClipApp::onClearHistory()
 {
     historyManager->clearHistory();
+    favoriteItemColors.clear();
     rebuildMenu();
 }
 
