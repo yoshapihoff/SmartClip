@@ -25,7 +25,7 @@ void SettingsDialog::setupUI()
     
     // Max Items
     m_maxItemsSpin = new QSpinBox(this);
-    m_maxItemsSpin->setMinimum(1);
+    m_maxItemsSpin->setMinimum(32);
     m_maxItemsSpin->setMaximum(1000);
     formLayout->addRow("History size", m_maxItemsSpin);
     
@@ -70,7 +70,7 @@ void SettingsDialog::onAccepted()
     
     // Validate max items value
     int maxItemsValue = m_maxItemsSpin->value();
-    if (maxItemsValue < 1 || maxItemsValue > 1000) {
+    if (maxItemsValue < 32 || maxItemsValue > 1000) {
         reject(); // Invalid value, reject dialog
         return;
     }

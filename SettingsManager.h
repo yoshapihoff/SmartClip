@@ -27,7 +27,7 @@ public:
     void saveCurrentSettings();
 
 private:
-    int m_maxItems = 20;
+    int m_maxItems = 32;
     bool m_launchAtStartup = false;
     bool m_saveHistoryOnExit = true;
     QString m_currentFilePath;

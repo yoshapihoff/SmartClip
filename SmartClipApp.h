@@ -12,6 +12,7 @@ class QAction;
 class QTimer;
 class SettingsManager;
 class SettingsDialog;
+class HelpDialog;
 class HistoryManager;
 class LaunchAgentManager;
 
@@ -31,6 +32,7 @@ private slots:
     void onClipboardChanged();
     void pollClipboard();
     void onSettings();
+    void onHelp();
     void onQuit();
     void onClearHistory();
     void onToggleFavorite(const QString &text);
@@ -61,10 +63,11 @@ private:
 
     QAction *titleAction = nullptr;
     QAction *settingsAction = nullptr;
+    QAction *helpAction = nullptr;
     QAction *quitAction = nullptr;
     QAction *clearHistoryAction = nullptr;
     
     // Цвета для иконок избранного
-    static const QColor favoriteColors[8]; // 7 цветов + белый
+    static const QColor favoriteColors[33]; // 32 цвета + белый
     QHash<QString, int> favoriteItemColors; // Сохраняем закрепленные цвета за элементами
 };

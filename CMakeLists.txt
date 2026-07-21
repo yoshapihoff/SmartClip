@@ -15,11 +15,13 @@ qt_add_executable(SmartClip
     main.cpp
     SmartClipApp.cpp
     SettingsManager.cpp
+    HelpDialog.cpp
     SettingsDialog.cpp
     HistoryManager.cpp
     LaunchAgentManager.cpp
     SmartClipApp.h
     SettingsManager.h
+    HelpDialog.h
     SettingsDialog.h
     HistoryManager.h
     LaunchAgentManager.h

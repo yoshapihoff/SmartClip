@@ -150,7 +150,7 @@ void TestSettingsDialog::testUISetup()
 {
     QSpinBox *maxItemsSpin = m_dialog->findChild<QSpinBox*>();
     QVERIFY(maxItemsSpin != nullptr);
-    QCOMPARE(maxItemsSpin->minimum(), 1);
+    QCOMPARE(maxItemsSpin->minimum(), 32);
     QCOMPARE(maxItemsSpin->maximum(), 1000);
 
     QList<QCheckBox*> checkBoxes = m_dialog->findChildren<QCheckBox*>();

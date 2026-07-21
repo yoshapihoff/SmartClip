@@ -61,13 +61,13 @@ void TestHistoryManager::testInitialization()
 {
     QVERIFY(m_historyManager != nullptr);
     QCOMPARE(m_historyManager->history().size(), 0);
-    QCOMPARE(m_historyManager->maxItems(), 20);
+    QCOMPARE(m_historyManager->maxItems(), 32);
     QCOMPARE(m_historyManager->isDirty(), false);
 }
 
 void TestHistoryManager::testMaxItems()
 {
-    QCOMPARE(m_historyManager->maxItems(), 20);
+    QCOMPARE(m_historyManager->maxItems(), 32);
     
     m_historyManager->setMaxItems(10);
     QCOMPARE(m_historyManager->maxItems(), 10);
@@ -316,8 +316,9 @@ void TestHistoryManager::testLoadSaveHistory()
     QVERIFY(QFile::exists(m_testFilePath));
     
     // Clear and reload
+    // clearHistory() теперь удаляет только неизбранные элементы, избранные остаются
     m_historyManager->clearHistory();
-    QCOMPARE(m_historyManager->history().size(), 0);
+    QCOMPARE(m_historyManager->history().size(), 1); // item1 (избранное) остался, item2 удалён
     
     m_historyManager->loadHistory(m_testFilePath);
     QCOMPARE(m_historyManager->history().size(), 2);

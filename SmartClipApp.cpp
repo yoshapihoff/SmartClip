@@ -1,6 +1,7 @@
 #include "SmartClipApp.h"
 #include "SettingsManager.h"
 #include "SettingsDialog.h"
+#include "HelpDialog.h"
 #include "HistoryManager.h"
 #include "LaunchAgentManager.h"
 #include <QApplication>
@@ -21,15 +22,40 @@
 #endif
 
 // Инициализация статических полей
-const QColor SmartClipApp::favoriteColors[8] = {
-    QColor(255, 0, 0),   // красный
-    QColor(255, 165, 0), // оранжевый
-    QColor(255, 255, 0), // желтый
-    QColor(0, 128, 0),   // зелёный
-    QColor(0, 0, 255),   // голубой
-    QColor(75, 0, 130),  // фиолетовый
-    QColor(0, 191, 255), // синий
-    QColor(255, 255, 255) // белый (для 8+ элементов)
+const QColor SmartClipApp::favoriteColors[33] = {
+    QColor(255, 0, 0),     // 0: красный
+    QColor(255, 128, 0),   // 1: оранжевый
+    QColor(255, 200, 0),   // 2: золотой
+    QColor(200, 200, 0),   // 3: жёлтый
+    QColor(128, 255, 0),   // 4: лайм
+    QColor(0, 200, 0),     // 5: зелёный
+    QColor(0, 128, 0),     // 6: тёмно-зелёный
+    QColor(0, 255, 128),   // 7: мятный
+    QColor(0, 255, 200),   // 8: циан
+    QColor(0, 180, 180),   // 9: бирюзовый
+    QColor(0, 128, 255),   // 10: небесно-голубой
+    QColor(0, 0, 255),     // 11: синий
+    QColor(50, 0, 200),    // 12: индиго
+    QColor(120, 0, 255),   // 13: фиолетовый
+    QColor(160, 0, 200),   // 14: пурпурный
+    QColor(255, 0, 200),   // 15: малиновый
+    QColor(255, 0, 100),   // 16: тёмно-розовый
+    QColor(255, 80, 80),   // 17: коралловый
+    QColor(255, 120, 100), // 18: лососевый
+    QColor(255, 180, 140), // 19: персиковый
+    QColor(200, 160, 100), // 20: бежевый
+    QColor(128, 128, 0),   // 21: оливковый
+    QColor(30, 140, 30),   // 22: лесной зелёный
+    QColor(50, 200, 50),   // 23: лаймово-зелёный
+    QColor(0, 255, 80),    // 24: весенне-зелёный
+    QColor(0, 200, 160),   // 25: морская волна
+    QColor(70, 130, 180),  // 26: стальной синий
+    QColor(60, 80, 220),   // 27: королевский синий
+    QColor(140, 80, 200),  // 28: средне-фиолетовый
+    QColor(200, 80, 180),  // 29: орхидея
+    QColor(255, 60, 140),  // 30: ярко-розовый
+    QColor(255, 60, 60),   // 31: томатный
+    QColor(255, 255, 255)  // 32: белый (для 33+ элементов)
 };
 SmartClipApp::SmartClipApp(QObject *parent)
     : QObject(parent)
@@ -71,6 +97,9 @@ SmartClipApp::SmartClipApp(QObject *parent)
 
     clearHistoryAction = new QAction("Clear", this);
     connect(clearHistoryAction, &QAction::triggered, this, &SmartClipApp::onClearHistory);
+
+    helpAction = new QAction("Help", this);
+    connect(helpAction, &QAction::triggered, this, &SmartClipApp::onHelp);
 
     quitAction = new QAction("Quit", this);
     connect(quitAction, &QAction::triggered, this, &SmartClipApp::onQuit);
@@ -173,6 +202,12 @@ void SmartClipApp::pollClipboard()
     }
 }
 
+void SmartClipApp::onHelp()
+{
+    HelpDialog dialog;
+    dialog.exec();
+}
+
 void SmartClipApp::onSettings()
 {
     SettingsDialog dialog(settingsManager);
@@ -214,7 +249,9 @@ void SmartClipApp::onQuit()
 void SmartClipApp::onClearHistory()
 {
     historyManager->clearHistory();
-    favoriteItemColors.clear();
+    if (historyManager->history().isEmpty()) {
+        favoriteItemColors.clear();
+    }
     rebuildMenu();
 }
 
@@ -247,20 +284,20 @@ int SmartClipApp::getFavoriteColorIndex(const QString &text)
     // Ищем свободный цвет (кроме белого)
     QSet<int> usedColors;
     for (auto it = favoriteItemColors.begin(); it != favoriteItemColors.end(); ++it) {
-        if (it.value() < 7) { // Игнорируем белый цвет
+        if (it.value() < 32) { // Игнорируем белый цвет
             usedColors.insert(it.value());
         }
     }
     
     // Находим первый свободный цвет
-    for (int i = 0; i < 7; ++i) {
+    for (int i = 0; i < 32; ++i) {
         if (!usedColors.contains(i)) {
             return i;
         }
     }
     
-    // Если все цвета заняты, возвращаем белый (индекс 7)
-    return 7;
+    // Если все цвета заняты, возвращаем белый (индекс 32)
+    return 32;
 }
 
 void SmartClipApp::releaseFavoriteColor(const QString &text)
@@ -297,7 +334,19 @@ void SmartClipApp::rebuildMenu()
             painter.setRenderHint(QPainter::Antialiasing);
             
             // Получаем закрепленный цвет за этим элементом
-            int colorIndex = favoriteItemColors.value(text, 7); // По умолчанию белый
+            // Приоритет: кеш favoriteItemColors → авторитетный favoriteColorIndex из HistoryItem → fallback на белый
+            int colorIndex;
+            if (favoriteItemColors.contains(text)) {
+                colorIndex = favoriteItemColors[text];
+                qDebug() << "Color from cache: index" << colorIndex << "for item:" << text;
+            } else {
+                colorIndex = history.at(i).favoriteColorIndex;
+                qDebug() << "No cache entry for" << text << "- using history favoriteColorIndex:" << colorIndex;
+                if (colorIndex < 0 || colorIndex > 32) {
+                    colorIndex = 32; // fallback на белый
+                    qDebug() << "Invalid favoriteColorIndex, falling back to white (32)";
+                }
+            }
             painter.setBrush(favoriteColors[colorIndex]);
             painter.setPen(Qt::NoPen);
             painter.drawEllipse(2, 2, 8, 8);
@@ -340,6 +389,10 @@ void SmartClipApp::rebuildMenu()
 
     if (settingsAction) {
         trayMenu.addAction(settingsAction);
+    }
+    
+    if (helpAction) {
+        trayMenu.addAction(helpAction);
     }
     
     if (quitAction) {

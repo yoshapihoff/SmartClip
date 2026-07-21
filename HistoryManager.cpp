@@ -129,7 +129,7 @@ void HistoryManager::loadHistory(const QString &filePath)
         } else if (key == QLatin1String("favorite_color_index")) {
             bool ok = false;
             const int v = val.toInt(&ok);
-            if (ok && v >= -1 && v <= 7) {
+            if (ok && v >= -1 && v <= 32) {
                 current.favoriteColorIndex = v;
             }
         } else if (key == QLatin1String("mask_in_menu")) {
@@ -236,7 +236,7 @@ void HistoryManager::setFavoriteColor(const QString &text, int colorIndex)
                               return item.text == text;
                           });
     if (it != m_history.end()) {
-        it->favoriteColorIndex = (colorIndex >= -1 && colorIndex <= 7) ? colorIndex : -1;
+        it->favoriteColorIndex = (colorIndex >= -1 && colorIndex <= 32) ? colorIndex : -1;
         m_dirty = true;
     }
 }
@@ -307,6 +307,12 @@ bool HistoryManager::maskInMenu(const QString &text) const
 
 void HistoryManager::clearHistory()
 {
-    m_history.clear();
+    for (auto it = m_history.begin(); it != m_history.end();) {
+        if ((*it).favoriteColorIndex == -1) {
+            it = m_history.erase(it);
+        } else {
+            ++it;
+        }
+    }
     m_dirty = true;
 }

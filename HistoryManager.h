@@ -14,7 +14,7 @@ public:
         QString text;
         int usageCount = 0;
         qint64 addedAtMs = 0;
-        /** Index of favorite color (0..7), or -1 if not favorite. */
+        /** Index of favorite color (0..32), or -1 if not favorite. */
         int favoriteColorIndex = -1;
         /** If true, show masked text in tray menu (e.g. pas***ord). */
         bool maskInMenu = false;
@@ -55,6 +55,6 @@ public:
 
 private:
     QVector<HistoryItem> m_history;
-    int m_maxItems = 20;
+    int m_maxItems = 32;
     bool m_dirty = false;
 };
