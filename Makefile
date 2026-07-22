@@ -45,27 +45,29 @@ endif
 
 CMAKE ?= cmake
 
-# Приоритет: PATH → Qt SDK Tools → Homebrew → системные пути
+# Ищем cmake. Приоритет:
+#   1. PATH (which cmake)
+#   2. Qt SDK: macOS — CMake.app/Contents/bin/cmake; Linux — Tools/Cmake/bin/cmake
+#   3. Системные пути
+# Если не найден — диагностика с подсказками по установке.
 _CMAKE_PATH := $(shell which cmake 2>/dev/null)
 ifeq ($(_CMAKE_PATH),)
-    # Ищем в Qt SDK (идёт в комплекте с официальным инсталлятором)
     _CMAKE_PATH := $(shell \
         for d in /Volumes/HDD/qt /opt/Qt $(HOME)/Qt; do \
-            test -x "$$d/Tools/CMake/CMake.app/Contents/bin/cmake" && echo "$$d/Tools/CMake/CMake.app/Contents/bin/cmake" && break; \
+            if [ -x "$$d/Tools/CMake/CMake.app/Contents/bin/cmake" ]; then \
+                echo "$$d/Tools/CMake/CMake.app/Contents/bin/cmake"; break; \
+            elif [ -x "$$d/Tools/Cmake/bin/cmake" ]; then \
+                echo "$$d/Tools/Cmake/bin/cmake"; break; \
+            fi; \
         done)
 endif
 ifeq ($(_CMAKE_PATH),)
-    # Homebrew / системные
     _CMAKE_PATH := $(shell \
         for d in /usr/local/bin /opt/homebrew/bin /usr/bin; do \
             test -x "$$d/cmake" && echo "$$d/cmake" && break; \
         done)
 endif
-ifeq ($(_CMAKE_PATH),)
-    # Последний fallback — пусть взорвётся с понятной ошибкой позже
-    _CMAKE_PATH := cmake
-endif
-CMAKE := $(_CMAKE_PATH)
+CMAKE := $(if $(_CMAKE_PATH),$(_CMAKE_PATH),$(error cmake not found. Install: sudo apt install cmake (Debian/Ubuntu) or sudo dnf install cmake (Fedora) or brew install cmake (macOS)))
 
 # =========================
 # Qt6 auto-detection
