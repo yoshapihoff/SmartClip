@@ -1,10 +1,13 @@
 #include <QtTest/QtTest>
 #include <QFile>
+#include <QFileInfo>
 #include <QDir>
+#include <QDateTime>
 #include <QStandardPaths>
 #include <QCoreApplication>
 #include <QProcess>
-#include <QTemporaryFile>
+#include <QTemporaryDir>
+#include <QTextStream>
 
 #include "../LaunchAgentManager.h"
 
@@ -19,32 +22,57 @@ private slots:
     void testInitialization();
     void testApplyLaunchAtStartupEnabled();
     void testApplyLaunchAtStartupDisabled();
-    void testApplyLaunchAtStartupDisabledFileExists();
-    void testApplyLaunchAtStartupNonMac();
+    void testApplyLaunchAtStartupDisabledRemovesFile();
+    void testApplyLaunchAtStartupCrossPlatform();
 
 private:
     LaunchAgentManager *m_launchAgentManager;
-    QString m_testPlistPath;
-    QString m_originalAppPath;
+    QString m_testHomeDir;
+    QString m_originalHome;
+
+    // Platform-specific helpers
+    QString testAutostartFilePath() const;
 };
+
+QString TestLaunchAgentManager::testAutostartFilePath() const
+{
+#if defined(Q_OS_MAC)
+    return m_testHomeDir + QLatin1String("/Library/LaunchAgents/com.yoshapihoff.smartclip.plist");
+#elif defined(Q_OS_LINUX)
+    return m_testHomeDir + QLatin1String("/.config/autostart/smartclip.desktop");
+#else
+    return QString();
+#endif
+}
 
 void TestLaunchAgentManager::init()
 {
+    m_originalHome = qgetenv("HOME");
+
+    // Create a temporary home directory so tests don't affect the real system
+    m_testHomeDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+                    + QLatin1String("/smartclip_test_home_")
+                    + QString::number(QDateTime::currentMSecsSinceEpoch());
+
+    QVERIFY(QDir().mkpath(m_testHomeDir));
+    qputenv("HOME", m_testHomeDir.toUtf8());
+
     m_launchAgentManager = new LaunchAgentManager();
-    
-    // Create a test plist path
-    m_testPlistPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/test_smartclip.plist";
-    
-    // Store original application path
-    m_originalAppPath = QCoreApplication::applicationFilePath();
-    
-    // Clean up any existing test file
-    QFile::remove(m_testPlistPath);
+
+    // Clean up any potential leftover test file
+    QFile::remove(testAutostartFilePath());
 }
 
 void TestLaunchAgentManager::cleanup()
 {
-    QFile::remove(m_testPlistPath);
+    qputenv("HOME", m_originalHome.toUtf8());
+
+    QFile::remove(testAutostartFilePath());
+
+    // Remove temp home tree
+    QDir dir(m_testHomeDir);
+    dir.removeRecursively();
+
     delete m_launchAgentManager;
 }
 
@@ -55,94 +83,70 @@ void TestLaunchAgentManager::testInitialization()
 
 void TestLaunchAgentManager::testApplyLaunchAtStartupEnabled()
 {
-    // This test will create a plist file on macOS
-    // On other platforms it should do nothing
-    
-#if defined(Q_OS_MAC)
-    // Mock the application path for testing
-    // Note: In real tests, we might need to use a mock QCoreApplication
-    
     m_launchAgentManager->applyLaunchAtStartup(true);
-    
-    // Check if plist file was created (may not work due to actual launchctl calls)
-    // For now, just ensure no crash occurs
-    QVERIFY(true);
+
+#if defined(Q_OS_MAC) || defined(Q_OS_LINUX)
+    // On macOS and Linux the autostart file must be created
+    const QString path = testAutostartFilePath();
+    QVERIFY(QFile::exists(path));
+
+    // Check that the file references the application executable
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString content = QString::fromUtf8(f.readAll());
+    QVERIFY(content.contains(QCoreApplication::applicationFilePath().toUtf8()));
 #else
-    // On non-Mac platforms, should do nothing without crashing
-    m_launchAgentManager->applyLaunchAtStartup(true);
-    QVERIFY(true);
+    // Other platforms: no-op, no file created
+    QVERIFY(!QFile::exists(testAutostartFilePath()) || testAutostartFilePath().isEmpty());
 #endif
 }
 
 void TestLaunchAgentManager::testApplyLaunchAtStartupDisabled()
 {
-    // This test should remove the plist file if it exists
-    
-#if defined(Q_OS_MAC)
-    // First create a dummy plist file
-    QFile file(m_testPlistPath);
-    if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QTextStream out(&file);
-        out << "dummy content";
-        file.close();
+    // Enable first to create the file
+    m_launchAgentManager->applyLaunchAtStartup(true);
+
+#if defined(Q_OS_MAC) || defined(Q_OS_LINUX)
+    QVERIFY(QFile::exists(testAutostartFilePath()));
+#endif
+
+    // Now disable — file must be removed
+    m_launchAgentManager->applyLaunchAtStartup(false);
+
+#if defined(Q_OS_MAC) || defined(Q_OS_LINUX)
+    QVERIFY(!QFile::exists(testAutostartFilePath()));
+#endif
+}
+
+void TestLaunchAgentManager::testApplyLaunchAtStartupDisabledRemovesFile()
+{
+    // Manually create the autostart file first, then call disable
+    const QString path = testAutostartFilePath();
+    if (!path.isEmpty()) {
+        QDir().mkpath(QFileInfo(path).absolutePath());
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream(&f) << "dummy existing autostart entry";
+        f.close();
+        QVERIFY(QFile::exists(path));
     }
-    
-    QVERIFY(QFile::exists(m_testPlistPath));
-    
-    // Note: We can't easily test the actual plistPath() without modifying the class
-    // For now, just ensure the method doesn't crash
+
     m_launchAgentManager->applyLaunchAtStartup(false);
-    
-    // The actual plist file at the real path should be handled by the method
-    QVERIFY(true);
-#else
-    m_launchAgentManager->applyLaunchAtStartup(false);
-    QVERIFY(true);
+
+#if defined(Q_OS_MAC) || defined(Q_OS_LINUX)
+    QVERIFY(!QFile::exists(path));
 #endif
 }
 
-void TestLaunchAgentManager::testApplyLaunchAtStartupDisabledFileExists()
+void TestLaunchAgentManager::testApplyLaunchAtStartupCrossPlatform()
 {
-    // Test disabling when plist file exists
-    // This is similar to the previous test but focuses on the file existence case
-    
-#if defined(Q_OS_MAC)
-    // Create a test plist file
-    QFile file(m_testPlistPath);
-    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
-    QTextStream out(&file);
-    out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-    out << "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n";
-    out << "<plist version=\"1.0\">\n";
-    out << "<dict>\n";
-    out << "  <key>Label</key>\n";
-    out << "  <string>com.yoshapihoff.smartclip</string>\n";
-    out << "</dict>\n";
-    out << "</plist>\n";
-    file.close();
-    
-    QVERIFY(QFile::exists(m_testPlistPath));
-    
-    // Apply disabled state
-    m_launchAgentManager->applyLaunchAtStartup(false);
-    
-    // Method should complete without crash
-    QVERIFY(true);
-#else
-    m_launchAgentManager->applyLaunchAtStartup(false);
-    QVERIFY(true);
-#endif
-}
-
-void TestLaunchAgentManager::testApplyLaunchAtStartupNonMac()
-{
-    // Test that the method doesn't crash on non-Mac platforms
-    // This test will run on all platforms but the behavior differs
-    
+    // Toggle enable/disable in sequence — must not crash on any platform
     m_launchAgentManager->applyLaunchAtStartup(true);
     m_launchAgentManager->applyLaunchAtStartup(false);
-    
-    // Should not crash on any platform
+    m_launchAgentManager->applyLaunchAtStartup(true);
+    m_launchAgentManager->applyLaunchAtStartup(false);
+
+    // No crash = pass
     QVERIFY(true);
 }
 

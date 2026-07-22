@@ -1,6 +1,8 @@
 # Build directories
 build/
 *.build/
+build-macos/
+build-linux/
 
 # CMake generated files
 CMakeCache.txt

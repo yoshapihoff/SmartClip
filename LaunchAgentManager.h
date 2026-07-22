@@ -14,5 +14,10 @@ public:
     void applyLaunchAtStartup(bool enabled);
 
 private:
-    QString plistPath() const;
+    /** Returns platform-specific autostart file path:
+     *   macOS:   ~/Library/LaunchAgents/com.yoshapihoff.smartclip.plist
+     *   Linux:   ~/.config/autostart/smartclip.desktop
+     *   Other:   empty string
+     */
+    QString autostartFilePath() const;
 };

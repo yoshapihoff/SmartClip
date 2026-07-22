@@ -31,7 +31,11 @@ void HelpDialog::setupUI()
     mainLayout->addWidget(favTitle);
 
     QLabel *favText = new QLabel(
+#if defined(Q_OS_MAC)
         "Hold <b>Ctrl</b> (⌃ on macOS) and <b>left-click</b> on any item in the tray menu. "
+#else
+        "Hold <b>Ctrl</b> and <b>left-click</b> on any item in the tray menu. "
+#endif
         "A colored dot will appear next to it, marking it as a favorite. "
         "Favorites stay pinned in the history so you can always find them quickly. "
         "To remove from favorites, Ctrl+click the same item again.",
@@ -45,7 +49,11 @@ void HelpDialog::setupUI()
     mainLayout->addWidget(maskTitle);
 
     QLabel *maskText = new QLabel(
+#if defined(Q_OS_MAC)
         "Hold <b>Shift</b> (⇧) and <b>left-click</b> on an item in the tray menu. "
+#else
+        "Hold <b>Shift</b> and <b>left-click</b> on an item in the tray menu. "
+#endif
         "The text will be masked — only the first and last few characters will be visible, "
         "and the rest will be replaced with asterisks (***). "
         "Shift+click again to show the full text.",

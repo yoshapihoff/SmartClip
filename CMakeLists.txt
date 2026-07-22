@@ -49,6 +49,30 @@ if(APPLE)
         MACOSX_BUNDLE_BUNDLE_NAME "SmartClip"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/Info.plist"
     )
+elseif(UNIX AND NOT APPLE)
+    # ── Linux install rules ──
+    include(GNUInstallDirs)
+
+    install(TARGETS SmartClip
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+
+    install(FILES assets/smartclip.desktop
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications
+    )
+
+    # Install icon in hicolor theme
+    install(FILES icons/icon.png
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/512x512/apps
+        RENAME smartclip.png
+    )
+
+    # Install tray icons used by application at runtime (via Qt resource system they're embedded,
+    # but we provide them for packaging completeness)
+    install(FILES icons/tray_black.svg
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps
+        RENAME smartclip.svg
+    )
 endif()
 
 enable_testing()
