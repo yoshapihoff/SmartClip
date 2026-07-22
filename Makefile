@@ -46,15 +46,26 @@ endif
 CMAKE ?= cmake
 
 # Приоритет: PATH → Qt SDK Tools → Homebrew → системные пути
-CMAKE := $(shell \
-    { command -v cmake 2>/dev/null; \
-      for d in /Volumes/HDD/qt /opt/Qt $(HOME)/Qt; do \
-        test -x "$$d/Tools/CMake/CMake.app/Contents/bin/cmake" && echo "$$d/Tools/CMake/CMake.app/Contents/bin/cmake" && break; \
-      done; \
-      for d in /usr/local/bin /opt/homebrew/bin /usr/bin; do \
-        test -x "$$d/cmake" && echo "$$d/cmake" && break; \
-      done; \
-    } | head -1)
+_CMAKE_PATH := $(shell which cmake 2>/dev/null)
+ifeq ($(_CMAKE_PATH),)
+    # Ищем в Qt SDK (идёт в комплекте с официальным инсталлятором)
+    _CMAKE_PATH := $(shell \
+        for d in /Volumes/HDD/qt /opt/Qt $(HOME)/Qt; do \
+            test -x "$$d/Tools/CMake/CMake.app/Contents/bin/cmake" && echo "$$d/Tools/CMake/CMake.app/Contents/bin/cmake" && break; \
+        done)
+endif
+ifeq ($(_CMAKE_PATH),)
+    # Homebrew / системные
+    _CMAKE_PATH := $(shell \
+        for d in /usr/local/bin /opt/homebrew/bin /usr/bin; do \
+            test -x "$$d/cmake" && echo "$$d/cmake" && break; \
+        done)
+endif
+ifeq ($(_CMAKE_PATH),)
+    # Последний fallback — пусть взорвётся с понятной ошибкой позже
+    _CMAKE_PATH := cmake
+endif
+CMAKE := $(_CMAKE_PATH)
 
 # =========================
 # Qt6 auto-detection
