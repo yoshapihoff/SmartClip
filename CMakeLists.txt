@@ -9,7 +9,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Svg)
 
 qt_add_executable(SmartClip
     main.cpp
@@ -31,6 +31,7 @@ qt_add_executable(SmartClip
 target_link_libraries(SmartClip
     PRIVATE
         Qt6::Widgets
+        Qt6::Svg
 )
 
 if(APPLE)

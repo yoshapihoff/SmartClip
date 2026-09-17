@@ -16,6 +16,7 @@
 #include <QTimer>
 #include <QPixmap>
 #include <QPainter>
+#include <QGuiApplication>
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
  #include <QStyleHints>
@@ -148,6 +149,8 @@ SmartClipApp::SmartClipApp(QObject *parent)
     }
 #endif
 }
+
+
 
 void SmartClipApp::show()
 {
@@ -357,7 +360,7 @@ void SmartClipApp::rebuildMenu()
         }
         
         connect(action, &QAction::triggered, this, [this, text]() {
-            const Qt::KeyboardModifiers mods = QApplication::keyboardModifiers();
+            const Qt::KeyboardModifiers mods = QGuiApplication::queryKeyboardModifiers();
             if (mods & Qt::ShiftModifier) {
                 // Ctrl+Shift+Click — переключить зашифрованное отображение в меню
                 historyManager->setMaskInMenu(text, !historyManager->maskInMenu(text));

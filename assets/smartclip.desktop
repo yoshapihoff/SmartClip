@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=SmartClip
+Comment=Clipboard History Manager
+Exec=smartclip
+Icon=smartclip
+Terminal=false
+Categories=Utility;
+Keywords=clipboard;history;tray;
+StartupNotify=false

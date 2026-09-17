@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Test)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Svg Test)
 
 include_directories(${CMAKE_SOURCE_DIR})
 
@@ -56,6 +56,7 @@ qt_add_executable(SmartClipAppTest
 target_link_libraries(SmartClipAppTest
     PRIVATE
         Qt6::Widgets
+        Qt6::Svg
         Qt6::Test
 )
 

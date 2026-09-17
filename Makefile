@@ -242,13 +242,11 @@ endif
 
 test: build
 	@echo "=== Running tests ==="
-	$(CMAKE) --build $(BUILD_DIR) --target test
-	cd $(BUILD_DIR) && ctest --output-on-failure
+	cd $(BUILD_DIR) && QT_QPA_PLATFORM=offscreen ctest --output-on-failure
 
 test-verbose: build
 	@echo "=== Running tests (verbose) ==="
-	$(CMAKE) --build $(BUILD_DIR) --target test
-	cd $(BUILD_DIR) && ctest --output-on-failure -V
+	cd $(BUILD_DIR) && QT_QPA_PLATFORM=offscreen ctest --output-on-failure -V
 
 # =========================
 # Convenience: linux-specific targets
@@ -260,6 +258,10 @@ linux: linux-build
 
 linux-build:
 	@$(MAKE) build BUILD_DIR=build-linux
+
+appimage: linux-build
+	@echo "=== Building AppImage ==="
+	@./make-appimage.sh
 
 linux-install:
 	@$(MAKE) install BUILD_DIR=build-linux
