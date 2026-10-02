@@ -263,7 +263,7 @@ void SmartClipApp::onClearHistory()
 void SmartClipApp::onToggleFavorite(const QString &text)
 {
     historyManager->toggleFavorite(text);
-    
+
     // Если элемент добавляется в избранное, закрепляем за ним цвет
     if (historyManager->isFavorite(text)) {
         if (!favoriteItemColors.contains(text)) {
@@ -275,7 +275,7 @@ void SmartClipApp::onToggleFavorite(const QString &text)
         releaseFavoriteColor(text);
         historyManager->setFavoriteColor(text, -1);
     }
-    
+
     rebuildMenu();
 }
 
@@ -329,7 +329,11 @@ void SmartClipApp::rebuildMenu()
         const QString labelText = maskThis ? maskForMenuDisplay(text) : text;
         QAction *action = trayMenu.addAction(formatMenuLabel(labelText));
 
-        // Показываем иконку избранного если элемент в избранном
+        // Показываем иконку избранного если элемент в избранном.
+        // Цветной кружок — как в macOS-версии. ВАЖНО (02.10.2026): пункт
+        // НЕ должен быть подменю — GNOME-расширение appindicator создаёт
+        // `_icon` только для обычных пунктов, у PopupSubMenuMenuItem слота
+        // иконки нет, и метка просто не рисовалась.
         if (history.at(i).favoriteColorIndex != -1) {
             action->setIcon(QIcon());
             action->setIconVisibleInMenu(true);
@@ -337,20 +341,13 @@ void SmartClipApp::rebuildMenu()
             pixmap.fill(Qt::transparent);
             QPainter painter(&pixmap);
             painter.setRenderHint(QPainter::Antialiasing);
-            
-            // Получаем закрепленный цвет за этим элементом
-            // Приоритет: кеш favoriteItemColors → авторитетный favoriteColorIndex из HistoryItem → fallback на белый
-            int colorIndex;
+
+            // Приоритет: кеш favoriteItemColors → авторитетный favoriteColorIndex из HistoryItem → белый
+            int colorIndex = history.at(i).favoriteColorIndex;
             if (favoriteItemColors.contains(text)) {
                 colorIndex = favoriteItemColors[text];
-                qDebug() << "Color from cache: index" << colorIndex << "for item:" << text;
-            } else {
-                colorIndex = history.at(i).favoriteColorIndex;
-                qDebug() << "No cache entry for" << text << "- using history favoriteColorIndex:" << colorIndex;
-                if (colorIndex < 0 || colorIndex > 32) {
-                    colorIndex = 32; // fallback на белый
-                    qDebug() << "Invalid favoriteColorIndex, falling back to white (32)";
-                }
+            } else if (colorIndex < 0 || colorIndex > 32) {
+                colorIndex = 32; // fallback на белый
             }
             painter.setBrush(favoriteColors[colorIndex]);
             painter.setPen(Qt::NoPen);
@@ -358,29 +355,25 @@ void SmartClipApp::rebuildMenu()
             painter.end();
             action->setIcon(QIcon(pixmap));
         }
-        
+
         connect(action, &QAction::triggered, this, [this, text]() {
-            const Qt::KeyboardModifiers mods = QGuiApplication::queryKeyboardModifiers();
+            const Qt::KeyboardModifiers mods =
+                QGuiApplication::queryKeyboardModifiers();
             if (mods & Qt::ShiftModifier) {
                 // Ctrl+Shift+Click — переключить зашифрованное отображение в меню
                 historyManager->setMaskInMenu(text, !historyManager->maskInMenu(text));
-                rebuildMenu();
             } else if (mods & Qt::ControlModifier) {
                 onToggleFavorite(text);
             } else {
                 // Обычное копирование в буфер
                 historyManager->incrementUsageCount(text);
-
                 if (QClipboard *clipboard = QApplication::clipboard()) {
                     ignoreNextClipboardChange = true;
                     clipboard->setText(text, QClipboard::Clipboard);
                 }
-
-                rebuildMenu();
             }
+            rebuildMenu();
         });
-        
-        // Добавляем контекстное меню для правого клика
         action->setData(text); // Сохраняем текст для использования в контекстном меню
     }
 
