@@ -4,6 +4,7 @@
 #include "HelpDialog.h"
 #include "HistoryManager.h"
 #include "LaunchAgentManager.h"
+#include "Crypto.h"
 #include <QApplication>
 #include <QAction>
 #include <QClipboard>
@@ -17,6 +18,9 @@
 #include <QPixmap>
 #include <QPainter>
 #include <QGuiApplication>
+#include <QProcess>
+#include <QRegularExpression>
+#include <QFileInfo>
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
  #include <QStyleHints>
@@ -75,14 +79,37 @@ SmartClipApp::SmartClipApp(QObject *parent)
     // Apply launch at startup setting
     launchAgentManager->applyLaunchAtStartup(settingsManager->launchAtStartup());
     
+    // ── Ключ шифрования истории ──────────────────────────────────────
+    // Одна схема для всех платформ: AES-256-GCM, а ключ лежит в системном
+    // хранилище (macOS Keychain / Linux Secret Service). Ключ создаётся
+    // один раз и переиспользуется.
+    const QByteArray encKey =
+        Crypto::loadOrCreateKey(QStringLiteral("SmartClip"),
+                                QStringLiteral("history-aes-key"));
+    if (encKey.size() == 32) {
+        historyManager->setEncryptionKey(encKey);
+        qInfo() << "SmartClip: шифрование истории ВКЛ ("
+                << Crypto::keyringBackend() << ")";
+    } else {
+        qWarning() << "SmartClip: хранилище ключей недоступно — "
+                      "история будет в открытом виде";
+    }
+
     if (settingsManager->saveHistoryOnExit()) {
-        historyManager->loadHistory(historyFilePath(), settingsManager->maxItems());
+        historyManager->setMaxItems(settingsManager->maxItems());
+        // loadHistory вернёт true, если файл был в старом ОТКРЫТОМ формате —
+        // тогда ниже перезапишем его шифрованным (миграция).
+        const bool migrated = historyManager->loadHistory(historyFilePath());
         // Восстанавливаем закреплённые цвета избранного из загруженной истории
         favoriteItemColors.clear();
         for (const auto &item : historyManager->history()) {
             if (item.favoriteColorIndex >= 0) {
                 favoriteItemColors[item.text] = item.favoriteColorIndex;
             }
+        }
+        if (migrated) {
+            qInfo() << "SmartClip: миграция истории → шифрованный формат";
+            persistHistory();
         }
     } else {
         historyManager->setMaxItems(settingsManager->maxItems());
@@ -148,6 +175,25 @@ SmartClipApp::SmartClipApp(QObject *parent)
         connect(hints, &QStyleHints::colorSchemeChanged, this, &SmartClipApp::updateIcon);
     }
 #endif
+
+#if defined(Q_OS_LINUX)
+    // На Linux/Wayland Qt НЕ получает colorScheme (Unknown), поэтому
+    // colorSchemeChanged никогда не срабатывает — и иконка не меняется
+    // при переключении темы «на лету». Периодически перечитываем тему
+    // сами (gsettings), дёшево — раз в 5 с.
+    iconThemeTimer = new QTimer(this);
+    iconThemeTimer->setInterval(5000);
+    connect(iconThemeTimer, &QTimer::timeout, this, &SmartClipApp::updateIcon);
+    iconThemeTimer->start();
+#endif
+
+    // Авто-сохранение истории/избранного/масок: гарантия персистентности
+    // независимо от способа завершения (SIGTERM/крэш/рестарт).
+    historyAutosaveTimer = new QTimer(this);
+    historyAutosaveTimer->setInterval(10000);
+    connect(historyAutosaveTimer, &QTimer::timeout,
+            this, &SmartClipApp::persistHistory);
+    historyAutosaveTimer->start();
 }
 
 
@@ -229,6 +275,26 @@ void SmartClipApp::onSettings()
     }
 }
 
+void SmartClipApp::persistHistory()
+{
+    // Избранное/маски/история должны переживать перезапуск НЕЗАВИСИМО от
+    // того, как приложение завершилось. Раньше saveHistory звался только
+    // в handleExitCleanup (чистый выход) — рестарт/kill/крэш терял изменения,
+    // и избранное не сохранялось (симптом: «после перезапуска нет избранного»).
+    if (!settingsManager->saveHistoryOnExit())
+        return;
+    if (!historyManager->isDirty())
+        return;
+    historyManager->saveHistory(historyFilePath());
+    historyManager->clearDirty();
+}
+
+void SmartClipApp::toggleItemMask(const QString &text)
+{
+    historyManager->setMaskInMenu(text, !historyManager->maskInMenu(text));
+    persistHistory();   // не терять зашифрованный режим при перезапуске
+}
+
 void SmartClipApp::handleExitCleanup()
 {
     if (exitHandled) {
@@ -247,6 +313,7 @@ void SmartClipApp::handleExitCleanup()
 
 void SmartClipApp::onQuit()
 {
+    persistHistory();
     handleExitCleanup();
     qApp->quit();
 }
@@ -257,6 +324,7 @@ void SmartClipApp::onClearHistory()
     if (historyManager->history().isEmpty()) {
         favoriteItemColors.clear();
     }
+    persistHistory();
     rebuildMenu();
 }
 
@@ -276,6 +344,7 @@ void SmartClipApp::onToggleFavorite(const QString &text)
         historyManager->setFavoriteColor(text, -1);
     }
 
+    persistHistory();   // избранное должно пережить перезапуск
     rebuildMenu();
 }
 
@@ -325,6 +394,8 @@ void SmartClipApp::rebuildMenu()
 
     for (int i = 0; i < history.size(); ++i) {
         const QString text = history.at(i).text;
+        // Метка следует своему флагу маскировки. В РЕЖИМЕ ВСКРЫТИЯ клик
+        // переключает маску: показать пароль / снова скрыть (см. обработчик).
         const bool maskThis = history.at(i).maskInMenu;
         const QString labelText = maskThis ? maskForMenuDisplay(text) : text;
         QAction *action = trayMenu.addAction(formatMenuLabel(labelText));
@@ -357,13 +428,24 @@ void SmartClipApp::rebuildMenu()
         }
 
         connect(action, &QAction::triggered, this, [this, text]() {
+            // Ctrl/Shift+клик работает на macOS и X11. На Wayland (GNOME SNI)
+            // модификаторы до нас НЕ доходят: расширение appindicator шлёт
+            // Event('clicked', data=i 0), а Qt без фокуса окна отдаёт
+            // NoModifier (QTBUG-105484). Поэтому есть явные режимы в меню:
+            // «режим избранного» и «режим вскрытия паролей».
             const Qt::KeyboardModifiers mods =
                 QGuiApplication::queryKeyboardModifiers();
             if (mods & Qt::ShiftModifier) {
-                // Ctrl+Shift+Click — переключить зашифрованное отображение в меню
-                historyManager->setMaskInMenu(text, !historyManager->maskInMenu(text));
-            } else if (mods & Qt::ControlModifier) {
+                // Ctrl+Shift+Click — переключить зашифрованное отображение
+                toggleItemMask(text);
+            } else if ((mods & Qt::ControlModifier) || favoriteMode) {
                 onToggleFavorite(text);
+            } else if (revealMode) {
+                // РЕЖИМ ВСКРЫТИЯ (пароли), как на macOS: клик переключает
+                // маску элемента — скрытый пароль показывается, повторный
+                // клик снова прячет. Этим же способом элемент ПОМЕЧАЕТСЯ как
+                // пароль (на Wayland Shift+клик не доходит — см. выше).
+                toggleItemMask(text);
             } else {
                 // Обычное копирование в буфер
                 historyManager->incrementUsageCount(text);
@@ -371,6 +453,7 @@ void SmartClipApp::rebuildMenu()
                     ignoreNextClipboardChange = true;
                     clipboard->setText(text, QClipboard::Clipboard);
                 }
+                persistHistory();
             }
             rebuildMenu();
         });
@@ -378,6 +461,42 @@ void SmartClipApp::rebuildMenu()
     }
 
     trayMenu.addSeparator();
+
+    // «Режим избранного»: на GNOME Wayland Ctrl+клик не доходит до
+    // приложения (см. обработчик пункта выше), поэтому даём явный тумблер.
+    // Включён → клик по элементу добавляет/убирает его из избранного.
+    if (!favoriteModeAction) {
+        favoriteModeAction = new QAction(this);
+        favoriteModeAction->setCheckable(true);
+        connect(favoriteModeAction, &QAction::toggled, this, [this](bool on) {
+            favoriteMode = on;
+            rebuildMenu();
+        });
+    }
+    favoriteModeAction->setChecked(favoriteMode);
+    favoriteModeAction->setText(
+        favoriteMode
+            ? QStringLiteral("★ Режим избранного: ВКЛ — клик = в избранное")
+            : QStringLiteral("★ Режим избранного: выкл"));
+    trayMenu.addAction(favoriteModeAction);
+
+    // «Режим вскрытия паролей» (как на macOS): выключен — скрытый пункт
+    // просто копируется в буфер; включён — клик по скрытому пункту показывает
+    // пароль, повторный клик снова скрывает.
+    if (!revealModeAction) {
+        revealModeAction = new QAction(this);
+        revealModeAction->setCheckable(true);
+        connect(revealModeAction, &QAction::toggled, this, [this](bool on) {
+            revealMode = on;
+            rebuildMenu();
+        });
+    }
+    revealModeAction->setChecked(revealMode);
+    revealModeAction->setText(
+        revealMode
+            ? QStringLiteral("🔓 Вскрытие паролей: ВКЛ — клик показывает / скрывает")
+            : QStringLiteral("🔒 Вскрытие паролей: выкл — клик копирует"));
+    trayMenu.addAction(revealModeAction);
 
     if (clearHistoryAction) {
         trayMenu.addAction(clearHistoryAction);
@@ -443,6 +562,59 @@ QString SmartClipApp::maskForMenuDisplay(const QString &text)
     return text.left(head) + QString(mid, QChar('*')) + text.right(tail);
 }
 
+bool SmartClipApp::desktopPrefersDark()
+{
+    // 1) Qt 6.5+ знает тему сам — если ответ определённый, доверяем ему.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+    if (QStyleHints *h = qApp->styleHints()) {
+        if (h->colorScheme() == Qt::ColorScheme::Dark)
+            return true;
+        if (h->colorScheme() == Qt::ColorScheme::Light)
+            return false;
+    }
+#endif
+
+    // 2) Фолбэк для Linux, где Qt НЕ отдаёт цветовую схему.
+    //    Пример (наша система): GTK-тема светлая (adw-gtk3), а Qt
+    //    colorScheme = Unknown, т.к. org.gnome.desktop.interface
+    //    color-scheme = 'default'. При этом ВЕРХНЯЯ ПАНЕЛЬ GNOME тёмная,
+    //    поэтому иконка трея обязана быть светлой. Смотрим в порядке
+    //    приоритета: явная схема GNOME → тёмная GTK-тема → яркость
+    //    палитры Qt.
+#if defined(Q_OS_LINUX)
+    auto readStr = [](const QString &prog, const QStringList &args) -> QString {
+        QProcess p;
+        p.start(prog, args);
+        if (!p.waitForFinished(1500))
+            return QString();
+        return QString::fromUtf8(p.readAllStandardOutput()).trimmed();
+    };
+
+    // 2a) org.gnome.desktop.interface color-scheme = 'prefer-dark'
+    const QString scheme = readStr("gsettings",
+        {"get", "org.gnome.desktop.interface", "color-scheme"});
+    if (scheme.contains("prefer-dark"))
+        return true;
+    if (scheme.contains("prefer-light"))
+        return false;
+    if (scheme.contains("default")) {
+        // 'default' — тема не задаёт схему, НО у GNOME верхняя панель
+        // (Quick Settings / обзор) по умолчанию ТЁМНАЯ. Считаем её тёмной,
+        // иначе получаем чёрную иконку на тёмной панели — исходный баг.
+        return true;
+    }
+
+    // 2b) тёмная GTK-тема по имени (…-dark) — если color-scheme не помог
+    const QString gtkTheme = readStr("gsettings",
+        {"get", "org.gnome.desktop.interface", "gtk-theme"});
+    if (gtkTheme.toLower().contains("dark"))
+        return true;
+#endif
+
+    // 3) Последний фолбэк — яркость палитры окна.
+    return qApp->palette().color(QPalette::Window).lightness() < 128;
+}
+
 void SmartClipApp::updateIcon()
 {
 #if defined(Q_OS_MAC)
@@ -454,13 +626,14 @@ void SmartClipApp::updateIcon()
     trayIcon.setIcon(icon);
     return;
 #else
-    bool darkMode = false;
+    const bool darkMode = desktopPrefersDark();
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
-    if (QStyleHints *hints = qApp->styleHints()) {
-        darkMode = (hints->colorScheme() == Qt::ColorScheme::Dark);
-    }
-#endif
+    // Кэш: не переставлять одну и ту же иконку на каждой проверке темы
+    // (иначе трей перерисовывается зря — на некоторых DE мигает).
+    if (iconDarkValid && iconDarkApplied == darkMode)
+        return;
+    iconDarkValid = true;
+    iconDarkApplied = darkMode;
 
     QIcon icon = darkMode
         ? QIcon(":/icons/tray_white.svg")

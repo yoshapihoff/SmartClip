@@ -43,6 +43,12 @@ private slots:
 
 private:
     void rebuildMenu();
+    /** Тема рабочего стола: true — тёмная (значит иконку трея надо светлую). */
+    static bool desktopPrefersDark();
+    /** Сразу сохранить историю (избранное/маски) — чтобы пережило перезапуск. */
+    void persistHistory();
+    /** Переключить маскировку пункта (пароль) и сразу сохранить. */
+    void toggleItemMask(const QString &text);
     QString settingsFilePath() const;
     QString historyFilePath() const;
     static QString formatMenuLabel(const QString &text);
@@ -66,6 +72,16 @@ private:
     QAction *helpAction = nullptr;
     QAction *quitAction = nullptr;
     QAction *clearHistoryAction = nullptr;
+    QAction *favoriteModeAction = nullptr;
+    QAction *revealModeAction = nullptr;   // «режим вскрытия паролей»
+    bool revealMode = false;
+    QTimer *iconThemeTimer = nullptr;   // периодическая проверка темы (Linux/Wayland)
+    QTimer *historyAutosaveTimer = nullptr;   // авто-сохранение истории/избранного
+    bool iconDarkValid = false;         // был ли уже применён цвет иконки
+    bool iconDarkApplied = false;       // тёмная ли тема была применена
+    // «Режим избранного»: на GNOME Wayland Ctrl+клик недоходит до приложения,
+    // поэтому клик по элементу работает как тумблер избранного (см. rebuildMenu).
+    bool favoriteMode = false;
     
     // Цвета для иконок избранного
     static const QColor favoriteColors[33]; // 32 цвета + белый

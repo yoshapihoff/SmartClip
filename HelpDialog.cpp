@@ -33,12 +33,16 @@ void HelpDialog::setupUI()
     QLabel *favText = new QLabel(
 #if defined(Q_OS_MAC)
         "Hold <b>Ctrl</b> (⌃ on macOS) and <b>left-click</b> on any item in the tray menu. "
+#elif defined(Q_OS_LINUX)
+        "Turn on <b>★ Favorite mode</b> in the menu, then <b>left-click</b> any item "
+        "(a colored dot appears next to it). "
+        "On X11 you can also hold <b>Ctrl</b> and <b>left-click</b>. "
 #else
         "Hold <b>Ctrl</b> and <b>left-click</b> on any item in the tray menu. "
 #endif
         "A colored dot will appear next to it, marking it as a favorite. "
         "Favorites stay pinned in the history so you can always find them quickly. "
-        "To remove from favorites, Ctrl+click the same item again.",
+        "To remove from favorites, do the same again.",
         this
     );
     favText->setWordWrap(true);
@@ -51,12 +55,20 @@ void HelpDialog::setupUI()
     QLabel *maskText = new QLabel(
 #if defined(Q_OS_MAC)
         "Hold <b>Shift</b> (⇧) and <b>left-click</b> on an item in the tray menu. "
-#else
-        "Hold <b>Shift</b> and <b>left-click</b> on an item in the tray menu. "
-#endif
         "The text will be masked — only the first and last few characters will be visible, "
         "and the rest will be replaced with asterisks (***). "
         "Shift+click again to show the full text.",
+#elif defined(Q_OS_LINUX)
+        "Turn on <b>🔓 Reveal passwords</b> in the menu. Then a <b>left-click</b> "
+        "on an item reveals the full text, and a second click hides it again "
+        "(masked as ***). While the mode is off, clicking an item just copies it. "
+        "(On Wayland the Shift+click shortcut cannot reach the app.)",
+#else
+        "Hold <b>Shift</b> and <b>left-click</b> on an item in the tray menu. "
+        "The text will be masked — only the first and last few characters will be visible, "
+        "and the rest will be replaced with asterisks (***). "
+        "Shift+click again to show the full text.",
+#endif
         this
     );
     maskText->setWordWrap(true);

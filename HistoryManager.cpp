@@ -1,10 +1,12 @@
 #include "HistoryManager.h"
+#include "Crypto.h"
 #include <QFile>
 #include <QFileInfo>
 #include <QDir>
 #include <QTextStream>
 #include <QByteArray>
 #include <QDateTime>
+#include <QDebug>
 #include <algorithm>
 
 HistoryManager::HistoryManager(QObject *parent)
@@ -89,21 +91,22 @@ void HistoryManager::trimToMaxItems()
     }
 }
 
-void HistoryManager::loadHistory(const QString &filePath)
+bool HistoryManager::loadHistory(const QString &filePath)
 {
     QFile f(filePath);
     if (!f.exists()) {
-        return;
+        return false;
     }
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return;
+        return false;
     }
 
     QVector<HistoryItem> loaded;
     HistoryItem current;
     bool inItem = false;
+    bool migrate = false;   // нашли открытые данные → надо пересохранить шифр.
 
-    auto parseKeyValue = [&current](const QString &line) {
+    auto parseKeyValue = [&](const QString &line) {
         const int idx = line.indexOf(QLatin1Char(':'));
         if (idx <= 0) {
             return;
@@ -113,7 +116,22 @@ void HistoryManager::loadHistory(const QString &filePath)
         const QString val = line.mid(idx + 1).trimmed();
 
         if (key == QLatin1String("text_b64")) {
-            current.text = QString::fromUtf8(QByteArray::fromBase64(val.toUtf8()));
+            if (val.startsWith(QLatin1String("v2:"))) {
+                // зашифрованный элемент: v2:<base64(nonce||ct||tag)>
+                const QByteArray blob =
+                    QByteArray::fromBase64(val.mid(3).toUtf8());
+                bool ok = false;
+                const QByteArray plain = Crypto::decrypt(blob, m_key, &ok);
+                current.text = ok ? QString::fromUtf8(plain) : QString();
+                if (!ok)
+                    qWarning() << "SmartClip: не расшифровал элемент истории"
+                               << "(нет ключа?)";
+            } else {
+                // старый ОТКРЫТЫЙ формат — декодируем и помечаем миграцию
+                current.text = QString::fromUtf8(
+                    QByteArray::fromBase64(val.toUtf8()));
+                migrate = true;
+            }
         } else if (key == QLatin1String("usage_count")) {
             bool ok = false;
             const int v = val.toInt(&ok);
@@ -171,7 +189,10 @@ void HistoryManager::loadHistory(const QString &filePath)
     m_history = loaded;
     sortHistory(); // Сортируем после загрузки
     trimToMaxItems();
-    m_dirty = false;
+    // Миграция: файл был в открытом виде и есть ключ → перезапишем шифром.
+    // Без ключа открытый формат остаётся как есть (мигрировать некуда).
+    m_dirty = migrate && encryptionEnabled();
+    return m_dirty;
 }
 
 void HistoryManager::loadHistory(const QString &filePath, int maxItemsForTrim)
@@ -194,12 +215,20 @@ void HistoryManager::saveHistory(const QString &filePath) const
         return;
     }
 
+    const bool enc = encryptionEnabled() && Crypto::available();
     QTextStream out(&f);
-    out << "version: 1\n";
+    out << "version: " << (enc ? 2 : 1) << "\n";
     out << "items:\n";
     for (const HistoryItem &item : m_history) {
-        const QByteArray b64 = item.text.toUtf8().toBase64();
-        out << "  - text_b64: " << b64 << "\n";
+        QString payload;
+        if (enc) {
+            const QByteArray blob = Crypto::encrypt(item.text.toUtf8(), m_key);
+            payload = QLatin1String("v2:")
+                      + QString::fromLatin1(blob.toBase64());
+        } else {
+            payload = QString::fromLatin1(item.text.toUtf8().toBase64());
+        }
+        out << "  - text_b64: " << payload << "\n";
         out << "    usage_count: " << item.usageCount << "\n";
         out << "    added_at_ms: " << item.addedAtMs << "\n";
         out << "    favorite_color_index: " << item.favoriteColorIndex << "\n";

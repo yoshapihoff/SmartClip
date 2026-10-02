@@ -26,12 +26,18 @@ target_link_libraries(SettingsDialogTest
 qt_add_executable(HistoryManagerTest
     HistoryManagerTest.cpp
     ${CMAKE_SOURCE_DIR}/HistoryManager.cpp
+    ${CMAKE_SOURCE_DIR}/Crypto.cpp
 )
 
 target_link_libraries(HistoryManagerTest
     PRIVATE
         Qt6::Test
 )
+
+if(OpenSSL_FOUND)
+    target_link_libraries(HistoryManagerTest PRIVATE OpenSSL::Crypto)
+    target_compile_definitions(HistoryManagerTest PRIVATE SMARTCLIP_HAVE_OPENSSL)
+endif()
 
 qt_add_executable(LaunchAgentManagerTest
     LaunchAgentManagerTest.cpp
@@ -50,6 +56,7 @@ qt_add_executable(SmartClipAppTest
     ${CMAKE_SOURCE_DIR}/SettingsManager.cpp
     ${CMAKE_SOURCE_DIR}/SettingsDialog.cpp
     ${CMAKE_SOURCE_DIR}/HistoryManager.cpp
+    ${CMAKE_SOURCE_DIR}/Crypto.cpp
     ${CMAKE_SOURCE_DIR}/LaunchAgentManager.cpp
 )
 
@@ -59,6 +66,11 @@ target_link_libraries(SmartClipAppTest
         Qt6::Svg
         Qt6::Test
 )
+
+if(OpenSSL_FOUND)
+    target_link_libraries(SmartClipAppTest PRIVATE OpenSSL::Crypto)
+    target_compile_definitions(SmartClipAppTest PRIVATE SMARTCLIP_HAVE_OPENSSL)
+endif()
 
 add_test(NAME SettingsDialogTest COMMAND SettingsDialogTest)
 add_test(NAME HistoryManagerTest COMMAND HistoryManagerTest)

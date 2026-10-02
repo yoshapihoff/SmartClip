@@ -36,11 +36,79 @@ private slots:
     void testLoadCorruptedFile();
     void testSetMaskInMenu();
     void testMaskInMenu();
+    void testEncryptedRoundTrip();
+    void testMigrationFromPlaintext();
 
 private:
     HistoryManager *m_historyManager;
     QString m_testFilePath;
 };
+
+// Крипто: прямой round-trip AES-256-GCM (без файла/хранилища ключей).
+#include "../Crypto.h"
+void TestHistoryManager::testEncryptedRoundTrip()
+{
+    if (!Crypto::available())
+        QSKIP("OpenSSL недоступен — шифрование не собрано");
+    const QByteArray key = Crypto::randomBytes(32);
+    QCOMPARE(key.size(), 32);
+    const QByteArray plain = QByteArray::fromHex("00ff10deadbeef") + "пароль";
+    const QByteArray blob = Crypto::encrypt(plain, key);
+    QVERIFY(!blob.isEmpty());
+    QVERIFY(blob != plain);
+    bool ok = false;
+    QCOMPARE(Crypto::decrypt(blob, key, &ok), plain);
+    QVERIFY(ok);
+    // неверный ключ → провал (ошибка аутентификации GCM)
+    bool ok2 = true;
+    Crypto::decrypt(blob, Crypto::randomBytes(32), &ok2);
+    QVERIFY(!ok2);
+}
+
+// Миграция: открытый файл → с ключом пересохраняется шифрованным (v2:).
+void TestHistoryManager::testMigrationFromPlaintext()
+{
+    if (!Crypto::available())
+        QSKIP("OpenSSL недоступен");
+    // 1) пишем ОТКРЫТЫЙ файл (старый формат)
+    m_historyManager->addToHistory("secret-pass");
+    m_historyManager->saveHistory(m_testFilePath);
+    {
+        QFile f(m_testFilePath);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QByteArray raw = f.readAll();
+        QVERIFY(raw.contains("text_b64"));
+        QVERIFY(!raw.contains("v2:"));   // ещё открыто
+    }
+    // 2) с ключом: загрузка помечает файл как подлежащий миграции
+    const QByteArray key = Crypto::randomBytes(32);
+    HistoryManager hm2;
+    hm2.setEncryptionKey(key);
+    QVERIFY(hm2.loadHistory(m_testFilePath));          // needMigrate == true
+    QCOMPARE(hm2.history().size(), 1);
+    QCOMPARE(hm2.history().first().text, QString("secret-pass"));
+    // 3) сохраняем → файл зашифрован (v2:), открытого текста нет
+    hm2.saveHistory(m_testFilePath);
+    {
+        QFile f(m_testFilePath);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QByteArray raw = f.readAll();
+        QVERIFY(raw.contains("v2:"));
+        QVERIFY(!raw.contains("secret-pass"));
+    }
+    // 4) загрузка тем же ключом — текст восстанавливается, миграция не нужна
+    HistoryManager hm3;
+    hm3.setEncryptionKey(key);
+    QVERIFY(!hm3.loadHistory(m_testFilePath));         // уже шифртекст
+    QCOMPARE(hm3.history().size(), 1);
+    QCOMPARE(hm3.history().first().text, QString("secret-pass"));
+    // 5) чужим ключом — расшифровка невалидна (GCM), текст не отдаётся
+    HistoryManager hm4;
+    hm4.setEncryptionKey(Crypto::randomBytes(32));
+    hm4.loadHistory(m_testFilePath);
+    for (const auto &it : hm4.history())
+        QVERIFY(it.text.isEmpty());
+}
 
 void TestHistoryManager::init()
 {

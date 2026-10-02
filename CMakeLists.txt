@@ -11,6 +11,11 @@ set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets Svg)
 
+# AES-256-GCM для шифрования истории. Ищем OpenSSL; если нет —
+# SMARTCLIP_HAVE_OPENSSL не определяем, и приложение работает без шифрования
+# (данные остаются в открытом виде, но сборка не падает).
+find_package(OpenSSL QUIET)
+
 qt_add_executable(SmartClip
     main.cpp
     SmartClipApp.cpp
@@ -18,12 +23,14 @@ qt_add_executable(SmartClip
     HelpDialog.cpp
     SettingsDialog.cpp
     HistoryManager.cpp
+    Crypto.cpp
     LaunchAgentManager.cpp
     SmartClipApp.h
     SettingsManager.h
     HelpDialog.h
     SettingsDialog.h
     HistoryManager.h
+    Crypto.h
     LaunchAgentManager.h
     resources.qrc
 )
@@ -33,6 +40,14 @@ target_link_libraries(SmartClip
         Qt6::Widgets
         Qt6::Svg
 )
+
+if(OpenSSL_FOUND)
+    target_link_libraries(SmartClip PRIVATE OpenSSL::Crypto)
+    target_compile_definitions(SmartClip PRIVATE SMARTCLIP_HAVE_OPENSSL)
+    message(STATUS "SmartClip: OpenSSL найден — шифрование истории включено")
+else()
+    message(WARNING "SmartClip: OpenSSL НЕ найден — шифрование истории недоступно")
+endif()
 
 if(APPLE)
     set(APP_ICON "${CMAKE_SOURCE_DIR}/icons/SmartClip.icns")
