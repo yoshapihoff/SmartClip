@@ -153,6 +153,21 @@ bool HistoryManager::loadHistory(const QString &filePath)
         } else if (key == QLatin1String("mask_in_menu")) {
             const QString lower = val.toLower();
             current.maskInMenu = (lower == QLatin1String("1") || lower == QLatin1String("true") || lower == QLatin1String("yes"));
+        } else if (key == QLatin1String("comment_b64")) {
+            // комментарий хранится зашифрованным тем же ключом (v2:), либо
+            // открытым base64 в старом формате
+            if (val.startsWith(QLatin1String("v2:"))) {
+                const QByteArray blob =
+                    QByteArray::fromBase64(val.mid(3).toUtf8());
+                bool okc = false;
+                const QByteArray plain = Crypto::decrypt(blob, m_key, &okc);
+                current.comment = okc ? QString::fromUtf8(plain) : QString();
+            } else {
+                current.comment =
+                    QString::fromUtf8(QByteArray::fromBase64(val.toUtf8()));
+                if (!current.comment.isEmpty())
+                    migrate = true;
+            }
         }
     };
 
@@ -233,6 +248,19 @@ void HistoryManager::saveHistory(const QString &filePath) const
         out << "    added_at_ms: " << item.addedAtMs << "\n";
         out << "    favorite_color_index: " << item.favoriteColorIndex << "\n";
         out << "    mask_in_menu: " << (item.maskInMenu ? "1" : "0") << "\n";
+        // Комментарий шифруем тем же ключом (это тоже пользовательские данные).
+        if (!item.comment.isEmpty()) {
+            QString cpayload;
+            if (enc) {
+                const QByteArray cblob =
+                    Crypto::encrypt(item.comment.toUtf8(), m_key);
+                cpayload = QLatin1String("v2:")
+                           + QString::fromLatin1(cblob.toBase64());
+            } else {
+                cpayload = QString::fromLatin1(item.comment.toUtf8().toBase64());
+            }
+            out << "    comment_b64: " << cpayload << "\n";
+        }
     }
 }
 
@@ -332,6 +360,27 @@ bool HistoryManager::maskInMenu(const QString &text) const
                               return item.text == text;
                           });
     return (it != m_history.end()) ? it->maskInMenu : false;
+}
+
+void HistoryManager::setComment(const QString &text, const QString &comment)
+{
+    auto it = std::find_if(m_history.begin(), m_history.end(),
+                          [&text](HistoryItem &item) {
+                              return item.text == text;
+                          });
+    if (it != m_history.end()) {
+        it->comment = comment;
+        m_dirty = true;
+    }
+}
+
+QString HistoryManager::comment(const QString &text) const
+{
+    auto it = std::find_if(m_history.begin(), m_history.end(),
+                          [&text](const HistoryItem &item) {
+                              return item.text == text;
+                          });
+    return (it != m_history.end()) ? it->comment : QString();
 }
 
 void HistoryManager::clearHistory()

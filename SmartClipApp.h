@@ -75,6 +75,12 @@ private:
     QAction *favoriteModeAction = nullptr;
     QAction *revealModeAction = nullptr;   // «режим вскрытия паролей»
     bool revealMode = false;
+    QAction *commentModeAction = nullptr;  // «режим комментариев»
+    bool commentMode = false;
+    /** Модальное окно ввода комментария. true — нажали «Окей». */
+    bool promptComment(const QString &text, QString &out);
+    /** Сбросить все режимы (одноразовое поведение после действия). */
+    void clearModes();
     QTimer *iconThemeTimer = nullptr;   // периодическая проверка темы (Linux/Wayland)
     QTimer *historyAutosaveTimer = nullptr;   // авто-сохранение истории/избранного
     bool iconDarkValid = false;         // был ли уже применён цвет иконки

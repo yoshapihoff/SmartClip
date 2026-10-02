@@ -5,6 +5,7 @@
 #include <QFormLayout>
 #include <QDialogButtonBox>
 #include <QLabel>
+#include <QPushButton>
 
 SettingsDialog::SettingsDialog(SettingsManager *settingsManager, QWidget *parent)
     : QDialog(parent)
@@ -44,6 +45,11 @@ void SettingsDialog::setupUI()
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, 
         this
     );
+
+    // Явные английские подписи: иначе Qt переведёт их по локали (ru_RU →
+    // «ОК/Отмена») и интерфейс станет смешанным.
+    buttonBox->button(QDialogButtonBox::Ok)->setText("OK");
+    buttonBox->button(QDialogButtonBox::Cancel)->setText("Cancel");
     
     connect(buttonBox, &QDialogButtonBox::accepted, this, &SettingsDialog::onAccepted);
     connect(buttonBox, &QDialogButtonBox::rejected, this, &SettingsDialog::onRejected);

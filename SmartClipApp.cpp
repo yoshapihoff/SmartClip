@@ -21,6 +21,13 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <QFileInfo>
+#include <QDialog>
+#include <QVBoxLayout>
+#include <QPlainTextEdit>
+#include <QDialogButtonBox>
+#include <QLabel>
+#include <QPushButton>
+#include <QSignalBlocker>
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
  #include <QStyleHints>
@@ -228,8 +235,9 @@ void SmartClipApp::handleClipboardChange()
         return;
     }
     lastClipboardText = text;
-    
+
     historyManager->addToHistory(text);
+    persistHistory();   // сохранить сразу (не ждать таймер)
     rebuildMenu();
 }
 
@@ -293,6 +301,50 @@ void SmartClipApp::toggleItemMask(const QString &text)
 {
     historyManager->setMaskInMenu(text, !historyManager->maskInMenu(text));
     persistHistory();   // не терять зашифрованный режим при перезапуске
+}
+
+bool SmartClipApp::promptComment(const QString &text, QString &out)
+{
+    // Маленькое модальное окно: показать запись, дать поле ввода комментария.
+    QDialog dlg;
+    dlg.setWindowTitle("Comment on clip");
+    auto *lay = new QVBoxLayout(&dlg);
+    auto *lbl = new QLabel("Clip:", &dlg);
+    lay->addWidget(lbl);
+    auto *shown = new QLabel(text.size() > 200 ? text.left(200) + "…" : text, &dlg);
+    shown->setWordWrap(true);
+    shown->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    lay->addWidget(shown);
+    auto *clbl = new QLabel("Comment:", &dlg);
+    lay->addWidget(clbl);
+    auto *edit = new QPlainTextEdit(&dlg);
+    edit->setPlainText(historyManager->comment(text));
+    edit->setMinimumSize(360, 90);
+    edit->selectAll();
+    lay->addWidget(edit);
+    auto *box = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    // Явно задаём английские подписи: иначе Qt подхватывает перевод
+    // по локали (напр. ru_RU → «Окей/Отмена») и интерфейс становится
+    // смешанным. Интерфейс приложения — единый английский.
+    box->button(QDialogButtonBox::Ok)->setText("OK");
+    box->button(QDialogButtonBox::Cancel)->setText("Cancel");
+    QObject::connect(box, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    QObject::connect(box, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(box);
+    dlg.setWindowFlag(Qt::WindowStaysOnTopHint, true);
+
+    // Режим одноразовый: гаснет при ЛЮБОМ закрытии окна («Окей»/«Отмена»).
+    QObject::connect(&dlg, &QDialog::finished, this, [this](int) {
+        clearModes();
+        rebuildMenu();
+    });
+
+    if (dlg.exec() == QDialog::Accepted) {
+        out = edit->toPlainText();
+        return true;
+    }
+    return false;
 }
 
 void SmartClipApp::handleExitCleanup()
@@ -379,6 +431,35 @@ void SmartClipApp::releaseFavoriteColor(const QString &text)
     favoriteItemColors.remove(text);
 }
 
+void SmartClipApp::clearModes()
+{
+    // Одноразовые режимы: после выполнения действия по клику режим сам гаснет.
+    // Блокируем сигналы, чтобы тумблеры не вызывали лишний rebuildMenu().
+    const bool needRebuild = favoriteMode || revealMode || commentMode;
+    if (favoriteMode) {
+        favoriteMode = false;
+        if (favoriteModeAction) {
+            QSignalBlocker b(favoriteModeAction);
+            favoriteModeAction->setChecked(false);
+        }
+    }
+    if (revealMode) {
+        revealMode = false;
+        if (revealModeAction) {
+            QSignalBlocker b(revealModeAction);
+            revealModeAction->setChecked(false);
+        }
+    }
+    if (commentMode) {
+        commentMode = false;
+        if (commentModeAction) {
+            QSignalBlocker b(commentModeAction);
+            commentModeAction->setChecked(false);
+        }
+    }
+    Q_UNUSED(needRebuild);
+}
+
 void SmartClipApp::rebuildMenu()
 {
     trayMenu.clear();
@@ -397,8 +478,12 @@ void SmartClipApp::rebuildMenu()
         // Метка следует своему флагу маскировки. В РЕЖИМЕ ВСКРЫТИЯ клик
         // переключает маску: показать пароль / снова скрыть (см. обработчик).
         const bool maskThis = history.at(i).maskInMenu;
-        const QString labelText = maskThis ? maskForMenuDisplay(text) : text;
-        QAction *action = trayMenu.addAction(formatMenuLabel(labelText));
+        QString baseText = maskThis ? maskForMenuDisplay(text) : text;
+        // Комментарий показываем в скобках после текста (режим «Комментарии»).
+        const QString cmt = history.at(i).comment;
+        if (!cmt.isEmpty())
+            baseText += QStringLiteral("  (") + cmt + QStringLiteral(")");
+        QAction *action = trayMenu.addAction(formatMenuLabel(baseText));
 
         // Показываем иконку избранного если элемент в избранном.
         // Цветной кружок — как в macOS-версии. ВАЖНО (02.10.2026): пункт
@@ -440,12 +525,23 @@ void SmartClipApp::rebuildMenu()
                 toggleItemMask(text);
             } else if ((mods & Qt::ControlModifier) || favoriteMode) {
                 onToggleFavorite(text);
+                clearModes();   // режим одноразовый — гасим после действия
+            } else if (commentMode) {
+                // РЕЖИМ КОММЕНТАРИЕВ: открыть модальное окно ввода.
+                // «Окей» — сохранить (с шифрованием), «Отмена» — не трогать.
+                // Режим гасится сам при закрытии окна (см. promptComment).
+                QString newComment;
+                if (promptComment(text, newComment)) {
+                    historyManager->setComment(text, newComment);
+                    persistHistory();
+                }
             } else if (revealMode) {
                 // РЕЖИМ ВСКРЫТИЯ (пароли), как на macOS: клик переключает
                 // маску элемента — скрытый пароль показывается, повторный
                 // клик снова прячет. Этим же способом элемент ПОМЕЧАЕТСЯ как
                 // пароль (на Wayland Shift+клик не доходит — см. выше).
                 toggleItemMask(text);
+                clearModes();   // режим одноразовый — гасим после действия
             } else {
                 // Обычное копирование в буфер
                 historyManager->incrementUsageCount(text);
@@ -474,10 +570,7 @@ void SmartClipApp::rebuildMenu()
         });
     }
     favoriteModeAction->setChecked(favoriteMode);
-    favoriteModeAction->setText(
-        favoriteMode
-            ? QStringLiteral("★ Режим избранного: ВКЛ — клик = в избранное")
-            : QStringLiteral("★ Режим избранного: выкл"));
+    favoriteModeAction->setText(QStringLiteral("Favorite mode"));
     trayMenu.addAction(favoriteModeAction);
 
     // «Режим вскрытия паролей» (как на macOS): выключен — скрытый пункт
@@ -492,11 +585,21 @@ void SmartClipApp::rebuildMenu()
         });
     }
     revealModeAction->setChecked(revealMode);
-    revealModeAction->setText(
-        revealMode
-            ? QStringLiteral("🔓 Вскрытие паролей: ВКЛ — клик показывает / скрывает")
-            : QStringLiteral("🔒 Вскрытие паролей: выкл — клик копирует"));
+    revealModeAction->setText(QStringLiteral("Reveal passwords"));
     trayMenu.addAction(revealModeAction);
+
+    // «Режим комментариев»: клик по элементу открывает окно ввода комментария.
+    if (!commentModeAction) {
+        commentModeAction = new QAction(this);
+        commentModeAction->setCheckable(true);
+        connect(commentModeAction, &QAction::toggled, this, [this](bool on) {
+            commentMode = on;
+            rebuildMenu();
+        });
+    }
+    commentModeAction->setChecked(commentMode);
+    commentModeAction->setText(QStringLiteral("Comments"));
+    trayMenu.addAction(commentModeAction);
 
     if (clearHistoryAction) {
         trayMenu.addAction(clearHistoryAction);
@@ -534,7 +637,7 @@ QString SmartClipApp::formatMenuLabel(const QString &text)
     s.replace('\r', ' ');
     s = s.simplified();
 
-    const int maxLen = 60;
+    const int maxLen = 90;   // больше места: комментарий идёт в скобках после текста
     if (s.length() > maxLen) {
         s = s.left(maxLen - 3) + "...";
     }

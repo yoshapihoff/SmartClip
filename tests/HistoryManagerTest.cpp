@@ -38,6 +38,7 @@ private slots:
     void testMaskInMenu();
     void testEncryptedRoundTrip();
     void testMigrationFromPlaintext();
+    void testCommentPersistence();
 
 private:
     HistoryManager *m_historyManager;
@@ -65,7 +66,36 @@ void TestHistoryManager::testEncryptedRoundTrip()
     QVERIFY(!ok2);
 }
 
-// Миграция: открытый файл → с ключом пересохраняется шифрованным (v2:).
+// Комментарий шифруется и переживает save/load.
+void TestHistoryManager::testCommentPersistence()
+{
+    if (!Crypto::available())
+        QSKIP("OpenSSL недоступен");
+    const QByteArray key = Crypto::randomBytes(32);
+    m_historyManager->setEncryptionKey(key);
+    m_historyManager->addToHistory("clip-with-note");
+    m_historyManager->setComment("clip-with-note", "важная заметка");
+    QCOMPARE(m_historyManager->comment("clip-with-note"), QString("важная заметка"));
+    m_historyManager->saveHistory(m_testFilePath);
+    // в файле комментарий зашифрован (нет открытого текста)
+    {
+        QFile f(m_testFilePath);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QByteArray raw = f.readAll();
+        QVERIFY(raw.contains("comment_b64"));
+        QVERIFY(!raw.contains("важная заметка"));
+    }
+    // повторная загрузка тем же ключом — комментарий восстановлен
+    HistoryManager hm;
+    hm.setEncryptionKey(key);
+    hm.loadHistory(m_testFilePath);
+    QCOMPARE(hm.comment("clip-with-note"), QString("важная заметка"));
+    // чужим ключом — комментарий не расшифрован (пусто)
+    HistoryManager hm2;
+    hm2.setEncryptionKey(Crypto::randomBytes(32));
+    hm2.loadHistory(m_testFilePath);
+    QCOMPARE(hm2.comment("clip-with-note"), QString());
+}
 void TestHistoryManager::testMigrationFromPlaintext()
 {
     if (!Crypto::available())

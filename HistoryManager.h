@@ -19,6 +19,8 @@ public:
         int favoriteColorIndex = -1;
         /** If true, show masked text in tray menu (e.g. pas***ord). */
         bool maskInMenu = false;
+        /** Пользовательский комментарий к записи (показывается в скобках). */
+        QString comment;
     };
 
     explicit HistoryManager(QObject *parent = nullptr);
@@ -62,6 +64,10 @@ public:
     // Mask in menu (encrypted display)
     void setMaskInMenu(const QString &text, bool mask);
     bool maskInMenu(const QString &text) const;
+
+    // Комментарий к записи (режим «Комментарии»)
+    void setComment(const QString &text, const QString &comment);
+    QString comment(const QString &text) const;
 
     // Method to clear history
     void clearHistory();
