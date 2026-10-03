@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets Svg Test)
+find_package(Qt6 QUIET COMPONENTS Mqtt)
 
 include_directories(${CMAKE_SOURCE_DIR})
 
@@ -15,6 +16,7 @@ qt_add_executable(SettingsDialogTest
     SettingsDialogTest.cpp
     ${CMAKE_SOURCE_DIR}/SettingsDialog.cpp
     ${CMAKE_SOURCE_DIR}/SettingsManager.cpp
+    ${CMAKE_SOURCE_DIR}/Crypto.cpp
 )
 
 target_link_libraries(SettingsDialogTest
@@ -22,6 +24,11 @@ target_link_libraries(SettingsDialogTest
         Qt6::Widgets
         Qt6::Test
 )
+
+if(OpenSSL_FOUND)
+    target_link_libraries(SettingsDialogTest PRIVATE OpenSSL::Crypto)
+    target_compile_definitions(SettingsDialogTest PRIVATE SMARTCLIP_HAVE_OPENSSL)
+endif()
 
 qt_add_executable(HistoryManagerTest
     HistoryManagerTest.cpp
@@ -37,6 +44,24 @@ target_link_libraries(HistoryManagerTest
 if(OpenSSL_FOUND)
     target_link_libraries(HistoryManagerTest PRIVATE OpenSSL::Crypto)
     target_compile_definitions(HistoryManagerTest PRIVATE SMARTCLIP_HAVE_OPENSSL)
+endif()
+
+qt_add_executable(SyncEngineTest
+    SyncEngineTest.cpp
+    ${CMAKE_SOURCE_DIR}/SyncEngine.cpp
+    ${CMAKE_SOURCE_DIR}/HistoryManager.cpp
+    ${CMAKE_SOURCE_DIR}/SettingsManager.cpp
+    ${CMAKE_SOURCE_DIR}/Crypto.cpp
+)
+
+target_link_libraries(SyncEngineTest
+    PRIVATE
+        Qt6::Test
+)
+
+if(OpenSSL_FOUND)
+    target_link_libraries(SyncEngineTest PRIVATE OpenSSL::Crypto)
+    target_compile_definitions(SyncEngineTest PRIVATE SMARTCLIP_HAVE_OPENSSL)
 endif()
 
 qt_add_executable(LaunchAgentManagerTest
@@ -57,6 +82,9 @@ qt_add_executable(SmartClipAppTest
     ${CMAKE_SOURCE_DIR}/SettingsDialog.cpp
     ${CMAKE_SOURCE_DIR}/HistoryManager.cpp
     ${CMAKE_SOURCE_DIR}/Crypto.cpp
+    ${CMAKE_SOURCE_DIR}/SyncEngine.cpp
+    ${CMAKE_SOURCE_DIR}/MqttClient.cpp
+    ${CMAKE_SOURCE_DIR}/SyncManager.cpp
     ${CMAKE_SOURCE_DIR}/LaunchAgentManager.cpp
 )
 
@@ -72,7 +100,13 @@ if(OpenSSL_FOUND)
     target_compile_definitions(SmartClipAppTest PRIVATE SMARTCLIP_HAVE_OPENSSL)
 endif()
 
+if(Qt6Mqtt_FOUND)
+    target_link_libraries(SmartClipAppTest PRIVATE Qt6::Mqtt)
+    target_compile_definitions(SmartClipAppTest PRIVATE SMARTCLIP_HAVE_MQTT)
+endif()
+
 add_test(NAME SettingsDialogTest COMMAND SettingsDialogTest)
 add_test(NAME HistoryManagerTest COMMAND HistoryManagerTest)
 add_test(NAME LaunchAgentManagerTest COMMAND LaunchAgentManagerTest)
 add_test(NAME SmartClipAppTest COMMAND SmartClipAppTest)
+add_test(NAME SyncEngineTest COMMAND SyncEngineTest)

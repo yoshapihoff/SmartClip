@@ -5,6 +5,7 @@
 #include <QString>
 #include <QDateTime>
 #include <QByteArray>
+#include <QHash>
 
 class HistoryManager final : public QObject
 {
@@ -72,8 +73,25 @@ public:
     // Method to clear history
     void clearHistory();
 
+    // ─────────────────────────── синхронизация ───────────────────────────
+    // Tombstone'ы: текст → время удаления (мс). Хранят факт явного удаления,
+    // чтобы удаление не «воскресало» при синке. Если запись с тем же текстом
+    // будет скопирована снова, tombstone снимается (addToHistory).
+    const QHash<QString, qint64> &tombstones() const { return m_tombstones; }
+    bool isDeleted(const QString &text) const { return m_tombstones.contains(text); }
+    qint64 tombstoneAtMs(const QString &text) const { return m_tombstones.value(text, 0); }
+    /** Пометить запись удалённой и убрать её из списка (tombstone создаётся). */
+    void removeItem(const QString &text, qint64 whenMs = 0);
+    /** Снять tombstone (запись снова считается живой). */
+    void resurrect(const QString &text);
+    void clearTombstones();
+    /** Полная замена состояния (применение результата синка). */
+    void setState(const QVector<HistoryItem> &items,
+                  const QHash<QString, qint64> &tombstones);
+
 private:
     QVector<HistoryItem> m_history;
+    QHash<QString, qint64> m_tombstones;   // текст → deleted_at_ms
     int m_maxItems = 32;
     bool m_dirty = false;
     QByteArray m_key;   // AES-256-GCM (32 байта); пусто — без шифрования

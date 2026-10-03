@@ -58,6 +58,27 @@ QByteArray randomBytes(int n)
     return out;
 }
 
+QByteArray deriveKey(const QString &password, const QByteArray &salt,
+                     int iterations)
+{
+#if !defined(SMARTCLIP_HAVE_OPENSSL)
+    Q_UNUSED(password); Q_UNUSED(salt); Q_UNUSED(iterations);
+    return {};
+#else
+    if (password.isEmpty() || iterations <= 0)
+        return {};
+    const QByteArray pw = password.toUtf8();
+    const QByteArray sl = salt.isEmpty() ? QByteArray(1, '\0') : salt;
+    QByteArray out(kKeyLen, 0);
+    if (PKCS5_PBKDF2_HMAC(pw.constData(), pw.size(),
+                          reinterpret_cast<const unsigned char *>(sl.constData()),
+                          sl.size(), iterations, EVP_sha256(), kKeyLen,
+                          reinterpret_cast<unsigned char *>(out.data())) != 1)
+        return {};
+    return out;
+#endif
+}
+
 QByteArray encrypt(const QByteArray &plain, const QByteArray &key)
 {
 #if !defined(SMARTCLIP_HAVE_OPENSSL)

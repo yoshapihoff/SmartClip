@@ -25,6 +25,14 @@ QByteArray randomBytes(int n);
 /** AES-256-GCM: ключ ровно 32 байта. Возврат: nonce||ct||tag (пусто — ошибка). */
 QByteArray encrypt(const QByteArray &plain, const QByteArray &key);
 
+/**
+ * Вывести 32-байтовый ключ из пароля (PBKDF2-HMAC-SHA256).
+ * Пароль общий для всех устройств группы; соль — константа приложения
+ * (по договорённости с Лёшей: salt = 0). Пусто — OpenSSL недоступен.
+ */
+QByteArray deriveKey(const QString &password, const QByteArray &salt,
+                     int iterations = 120000);
+
 /** Расшифровать blob (nonce||ct||tag). ok=false при неверном ключе/повреждении. */
 QByteArray decrypt(const QByteArray &blob, const QByteArray &key, bool *ok = nullptr);
 

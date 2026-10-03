@@ -64,6 +64,12 @@ void HistoryManager::addToHistory(const QString &text)
         it->addedAtMs = nowMs;
     }
 
+    // Повторное копирование «воскрешает» запись: снимаем tombstone, иначе
+    // удаление на другом устройстве могло бы её снова убить при синке.
+    if (m_tombstones.contains(text)) {
+        m_tombstones.remove(text);
+    }
+
     trimToMaxItems();
     sortHistory(); // Сортируем после добавления
     m_dirty = true;
@@ -91,6 +97,39 @@ void HistoryManager::trimToMaxItems()
     }
 }
 
+// ────────────────────────────── загрузка ──────────────────────────────
+
+namespace {
+
+/** Расшифровать значение поля (v2:...) или декодировать открытый base64. */
+QString decodeField(const QString &val, const QByteArray &key, bool *wasPlain)
+{
+    if (wasPlain)
+        *wasPlain = false;
+    if (val.startsWith(QLatin1String("v2:"))) {
+        const QByteArray blob = QByteArray::fromBase64(val.mid(3).toUtf8());
+        bool ok = false;
+        const QByteArray plain = Crypto::decrypt(blob, key, &ok);
+        return ok ? QString::fromUtf8(plain) : QString();
+    }
+    if (wasPlain)
+        *wasPlain = true;
+    return QString::fromUtf8(QByteArray::fromBase64(val.toUtf8()));
+}
+
+/** Прочитать key: value из строки. Возвращает false, если строки нет. */
+bool splitKeyValue(const QString &line, QString &key, QString &val)
+{
+    const int idx = line.indexOf(QLatin1Char(':'));
+    if (idx <= 0)
+        return false;
+    key = line.left(idx).trimmed();
+    val = line.mid(idx + 1).trimmed();
+    return true;
+}
+
+}  // namespace
+
 bool HistoryManager::loadHistory(const QString &filePath)
 {
     QFile f(filePath);
@@ -102,73 +141,29 @@ bool HistoryManager::loadHistory(const QString &filePath)
     }
 
     QVector<HistoryItem> loaded;
+    QHash<QString, qint64> loadedTombstones;
     HistoryItem current;
-    bool inItem = false;
-    bool migrate = false;   // нашли открытые данные → надо пересохранить шифр.
+    QString curDelText;
+    qint64 curDelAt = 0;
+    bool haveCurrent = false;
+    bool haveDel = false;
+    bool inItem = false;        // внутри "- text_b64:" элемента истории
+    bool inDeleted = false;     // внутри "- text_b64:" tombstone
+    int section = 0;            // 0 = шапка, 1 = items, 2 = deleted
+    bool migrate = false;       // нашли открытые данные → надо пересохранить
 
-    auto parseKeyValue = [&](const QString &line) {
-        const int idx = line.indexOf(QLatin1Char(':'));
-        if (idx <= 0) {
-            return;
-        }
-
-        const QString key = line.left(idx).trimmed();
-        const QString val = line.mid(idx + 1).trimmed();
-
-        if (key == QLatin1String("text_b64")) {
-            if (val.startsWith(QLatin1String("v2:"))) {
-                // зашифрованный элемент: v2:<base64(nonce||ct||tag)>
-                const QByteArray blob =
-                    QByteArray::fromBase64(val.mid(3).toUtf8());
-                bool ok = false;
-                const QByteArray plain = Crypto::decrypt(blob, m_key, &ok);
-                current.text = ok ? QString::fromUtf8(plain) : QString();
-                if (!ok)
-                    qWarning() << "SmartClip: не расшифровал элемент истории"
-                               << "(нет ключа?)";
-            } else {
-                // старый ОТКРЫТЫЙ формат — декодируем и помечаем миграцию
-                current.text = QString::fromUtf8(
-                    QByteArray::fromBase64(val.toUtf8()));
-                migrate = true;
-            }
-        } else if (key == QLatin1String("usage_count")) {
-            bool ok = false;
-            const int v = val.toInt(&ok);
-            if (ok && v >= 0) {
-                current.usageCount = v;
-            }
-        } else if (key == QLatin1String("added_at_ms")) {
-            bool ok = false;
-            const qint64 v = val.toLongLong(&ok);
-            if (ok && v >= 0) {
-                current.addedAtMs = v;
-            }
-        } else if (key == QLatin1String("favorite_color_index")) {
-            bool ok = false;
-            const int v = val.toInt(&ok);
-            if (ok && v >= -1 && v <= 32) {
-                current.favoriteColorIndex = v;
-            }
-        } else if (key == QLatin1String("mask_in_menu")) {
-            const QString lower = val.toLower();
-            current.maskInMenu = (lower == QLatin1String("1") || lower == QLatin1String("true") || lower == QLatin1String("yes"));
-        } else if (key == QLatin1String("comment_b64")) {
-            // комментарий хранится зашифрованным тем же ключом (v2:), либо
-            // открытым base64 в старом формате
-            if (val.startsWith(QLatin1String("v2:"))) {
-                const QByteArray blob =
-                    QByteArray::fromBase64(val.mid(3).toUtf8());
-                bool okc = false;
-                const QByteArray plain = Crypto::decrypt(blob, m_key, &okc);
-                current.comment = okc ? QString::fromUtf8(plain) : QString();
-            } else {
-                current.comment =
-                    QString::fromUtf8(QByteArray::fromBase64(val.toUtf8()));
-                if (!current.comment.isEmpty())
-                    migrate = true;
-            }
-        }
+    auto flushItem = [&]() {
+        if (inItem && !current.text.isEmpty())
+            loaded.push_back(current);
+        current = HistoryItem{};
+        inItem = false;
+    };
+    auto flushDeleted = [&]() {
+        if (inDeleted && !curDelText.isEmpty())
+            loadedTombstones.insert(curDelText, curDelAt);
+        curDelText.clear();
+        curDelAt = 0;
+        inDeleted = false;
     };
 
     QTextStream in(&f);
@@ -176,32 +171,121 @@ bool HistoryManager::loadHistory(const QString &filePath)
         const QString line = in.readLine();
         const QString t = line.trimmed();
 
-        if (t.startsWith(QLatin1Char('-'))) {
-            if (inItem && !current.text.isEmpty()) {
-                loaded.push_back(current);
+        // Заголовки секций
+        if (!t.startsWith(QLatin1Char('-'))) {
+            if (t == QLatin1String("items:")) {
+                flushItem();
+                flushDeleted();
+                section = 1;
+                continue;
             }
-            current = HistoryItem{};
-            inItem = true;
+            if (t == QLatin1String("deleted:")) {
+                flushItem();
+                flushDeleted();
+                section = 2;
+                continue;
+            }
+        }
 
+        if (t.startsWith(QLatin1Char('-'))) {
+            if (section == 2) {
+                flushDeleted();
+                inDeleted = true;
+                const QString rest = t.mid(1).trimmed();
+                if (!rest.isEmpty()) {
+                    QString k, v;
+                    if (splitKeyValue(rest, k, v)
+                        && k == QLatin1String("text_b64")) {
+                        bool plain = false;
+                        curDelText = decodeField(v, m_key, &plain);
+                        if (plain)
+                            migrate = true;
+                    }
+                }
+                continue;
+            }
+            // items
+            flushItem();
+            inItem = true;
+            haveCurrent = true;
             const QString rest = t.mid(1).trimmed();
             if (!rest.isEmpty()) {
-                parseKeyValue(rest);
+                QString k, v;
+                if (splitKeyValue(rest, k, v) && k == QLatin1String("text_b64")) {
+                    bool plain = false;
+                    current.text = decodeField(v, m_key, &plain);
+                    if (plain)
+                        migrate = true;
+                }
             }
             continue;
         }
 
-        if (!inItem) {
+        if (section == 2) {
+            QString k, v;
+            if (!splitKeyValue(t, k, v))
+                continue;
+            if (k == QLatin1String("text_b64")) {
+                bool plain = false;
+                curDelText = decodeField(v, m_key, &plain);
+                if (plain)
+                    migrate = true;
+            } else if (k == QLatin1String("deleted_at_ms")) {
+                bool ok = false;
+                const qint64 x = v.toLongLong(&ok);
+                if (ok && x > 0)
+                    curDelAt = x;
+            }
             continue;
         }
 
-        parseKeyValue(t);
+        // items
+        if (!inItem)
+            continue;
+        QString key, val;
+        if (!splitKeyValue(t, key, val))
+            continue;
+
+        if (key == QLatin1String("text_b64")) {
+            bool plain = false;
+            current.text = decodeField(val, m_key, &plain);
+            if (plain)
+                migrate = true;
+        } else if (key == QLatin1String("usage_count")) {
+            bool ok = false;
+            const int v = val.toInt(&ok);
+            if (ok && v >= 0)
+                current.usageCount = v;
+        } else if (key == QLatin1String("added_at_ms")) {
+            bool ok = false;
+            const qint64 v = val.toLongLong(&ok);
+            if (ok && v >= 0)
+                current.addedAtMs = v;
+        } else if (key == QLatin1String("favorite_color_index")) {
+            bool ok = false;
+            const int v = val.toInt(&ok);
+            if (ok && v >= -1 && v <= 32)
+                current.favoriteColorIndex = v;
+        } else if (key == QLatin1String("mask_in_menu")) {
+            const QString lower = val.toLower();
+            current.maskInMenu = (lower == QLatin1String("1")
+                                  || lower == QLatin1String("true")
+                                  || lower == QLatin1String("yes"));
+        } else if (key == QLatin1String("comment_b64")) {
+            bool plain = false;
+            current.comment = decodeField(val, m_key, &plain);
+            if (plain && !current.comment.isEmpty())
+                migrate = true;
+        }
     }
 
-    if (inItem && !current.text.isEmpty()) {
-        loaded.push_back(current);
-    }
+    flushItem();
+    flushDeleted();
+    Q_UNUSED(haveCurrent);
+    Q_UNUSED(haveDel);
 
     m_history = loaded;
+    m_tombstones = loadedTombstones;
     sortHistory(); // Сортируем после загрузки
     trimToMaxItems();
     // Миграция: файл был в открытом виде и есть ключ → перезапишем шифром.
@@ -231,35 +315,35 @@ void HistoryManager::saveHistory(const QString &filePath) const
     }
 
     const bool enc = encryptionEnabled() && Crypto::available();
+    auto encodeField = [&](const QString &plain) -> QString {
+        if (enc) {
+            const QByteArray blob = Crypto::encrypt(plain.toUtf8(), m_key);
+            return QLatin1String("v2:") + QString::fromLatin1(blob.toBase64());
+        }
+        return QString::fromLatin1(plain.toUtf8().toBase64());
+    };
+
     QTextStream out(&f);
-    out << "version: " << (enc ? 2 : 1) << "\n";
+    out << "version: " << (enc ? 3 : 1) << "\n";
     out << "items:\n";
     for (const HistoryItem &item : m_history) {
-        QString payload;
-        if (enc) {
-            const QByteArray blob = Crypto::encrypt(item.text.toUtf8(), m_key);
-            payload = QLatin1String("v2:")
-                      + QString::fromLatin1(blob.toBase64());
-        } else {
-            payload = QString::fromLatin1(item.text.toUtf8().toBase64());
-        }
-        out << "  - text_b64: " << payload << "\n";
+        out << "  - text_b64: " << encodeField(item.text) << "\n";
         out << "    usage_count: " << item.usageCount << "\n";
         out << "    added_at_ms: " << item.addedAtMs << "\n";
         out << "    favorite_color_index: " << item.favoriteColorIndex << "\n";
         out << "    mask_in_menu: " << (item.maskInMenu ? "1" : "0") << "\n";
-        // Комментарий шифруем тем же ключом (это тоже пользовательские данные).
         if (!item.comment.isEmpty()) {
-            QString cpayload;
-            if (enc) {
-                const QByteArray cblob =
-                    Crypto::encrypt(item.comment.toUtf8(), m_key);
-                cpayload = QLatin1String("v2:")
-                           + QString::fromLatin1(cblob.toBase64());
-            } else {
-                cpayload = QString::fromLatin1(item.comment.toUtf8().toBase64());
-            }
-            out << "    comment_b64: " << cpayload << "\n";
+            out << "    comment_b64: " << encodeField(item.comment) << "\n";
+        }
+    }
+
+    if (!m_tombstones.isEmpty()) {
+        out << "deleted:\n";
+        for (auto it = m_tombstones.constBegin(); it != m_tombstones.constEnd(); ++it) {
+            if (it.key().isEmpty())
+                continue;
+            out << "  - text_b64: " << encodeField(it.key()) << "\n";
+            out << "    deleted_at_ms: " << it.value() << "\n";
         }
     }
 }
@@ -385,12 +469,57 @@ QString HistoryManager::comment(const QString &text) const
 
 void HistoryManager::clearHistory()
 {
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
     for (auto it = m_history.begin(); it != m_history.end();) {
         if ((*it).favoriteColorIndex == -1) {
+            // Tombstone на каждый удалённый элемент: очистка «не избранного»
+            // должна доехать до других устройств (требование Лёши).
+            m_tombstones.insert((*it).text, nowMs);
             it = m_history.erase(it);
         } else {
             ++it;
         }
     }
+    m_dirty = true;
+}
+
+// ────────────────────────── удаление / воскрешение ──────────────────────────
+
+void HistoryManager::removeItem(const QString &text, qint64 whenMs)
+{
+    if (text.isEmpty())
+        return;
+    const qint64 ts = whenMs > 0 ? whenMs : QDateTime::currentMSecsSinceEpoch();
+    m_tombstones.insert(text, ts);
+    for (auto it = m_history.begin(); it != m_history.end(); ++it) {
+        if (it->text == text) {
+            m_history.erase(it);
+            break;
+        }
+    }
+    m_dirty = true;
+}
+
+void HistoryManager::resurrect(const QString &text)
+{
+    if (m_tombstones.remove(text) > 0)
+        m_dirty = true;
+}
+
+void HistoryManager::clearTombstones()
+{
+    if (!m_tombstones.isEmpty()) {
+        m_tombstones.clear();
+        m_dirty = true;
+    }
+}
+
+void HistoryManager::setState(const QVector<HistoryItem> &items,
+                              const QHash<QString, qint64> &tombstones)
+{
+    m_history = items;
+    m_tombstones = tombstones;
+    sortHistory();
+    trimToMaxItems();
     m_dirty = true;
 }

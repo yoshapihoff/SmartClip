@@ -24,6 +24,9 @@ qt_add_executable(SmartClip
     SettingsDialog.cpp
     HistoryManager.cpp
     Crypto.cpp
+    SyncEngine.cpp
+    MqttClient.cpp
+    SyncManager.cpp
     LaunchAgentManager.cpp
     SmartClipApp.h
     SettingsManager.h
@@ -31,6 +34,9 @@ qt_add_executable(SmartClip
     SettingsDialog.h
     HistoryManager.h
     Crypto.h
+    SyncEngine.h
+    MqttClient.h
+    SyncManager.h
     LaunchAgentManager.h
     resources.qrc
 )
@@ -47,6 +53,17 @@ if(OpenSSL_FOUND)
     message(STATUS "SmartClip: OpenSSL найден — шифрование истории включено")
 else()
     message(WARNING "SmartClip: OpenSSL НЕ найден — шифрование истории недоступно")
+endif()
+
+# Сетевая синхронизация через MQTT (Qt6::Mqtt). Модуль опционален: без него
+# приложение собирается, а синк просто выключен (MqttClient::available()==false).
+find_package(Qt6 QUIET COMPONENTS Mqtt)
+if(Qt6Mqtt_FOUND)
+    target_link_libraries(SmartClip PRIVATE Qt6::Mqtt)
+    target_compile_definitions(SmartClip PRIVATE SMARTCLIP_HAVE_MQTT)
+    message(STATUS "SmartClip: Qt6::Mqtt найден — сетевая синхронизация включена")
+else()
+    message(WARNING "SmartClip: Qt6::Mqtt НЕ найден — сетевая синхронизация недоступна (установите qt6-mqtt)")
 endif()
 
 if(APPLE)

@@ -5,6 +5,8 @@
 #include "HistoryManager.h"
 #include "LaunchAgentManager.h"
 #include "Crypto.h"
+#include "MqttClient.h"
+#include "SyncManager.h"
 #include <QApplication>
 #include <QAction>
 #include <QClipboard>
@@ -76,6 +78,14 @@ SmartClipApp::SmartClipApp(QObject *parent)
     , launchAgentManager(new LaunchAgentManager(this))
 {
     // Load settings
+    // Ключ шифрования нужен РАНЬШЕ загрузки настроек: им расшифровываются
+    // пароли брокера и общий пароль синка в settings.yml.
+    const QByteArray encKey =
+        Crypto::loadOrCreateKey(QStringLiteral("SmartClip"),
+                                QStringLiteral("history-aes-key"));
+    if (encKey.size() == 32) {
+        settingsManager->setSecretKey(encKey);
+    }
     settingsManager->loadSettings(settingsFilePath());
     
     // Connect to settings changes for auto-save
@@ -90,9 +100,6 @@ SmartClipApp::SmartClipApp(QObject *parent)
     // Одна схема для всех платформ: AES-256-GCM, а ключ лежит в системном
     // хранилище (macOS Keychain / Linux Secret Service). Ключ создаётся
     // один раз и переиспользуется.
-    const QByteArray encKey =
-        Crypto::loadOrCreateKey(QStringLiteral("SmartClip"),
-                                QStringLiteral("history-aes-key"));
     if (encKey.size() == 32) {
         historyManager->setEncryptionKey(encKey);
         qInfo() << "SmartClip: шифрование истории ВКЛ ("
@@ -201,6 +208,17 @@ SmartClipApp::SmartClipApp(QObject *parent)
     connect(historyAutosaveTimer, &QTimer::timeout,
             this, &SmartClipApp::persistHistory);
     historyAutosaveTimer->start();
+
+    // ── Сетевая синхронизация (MQTT, опционально) ──────────────────────
+    // Без модуля Qt6::Mqtt MqttClient::available() == false, и синк — no-op.
+    mqttClient = new MqttClient(this);
+    syncManager = new SyncManager(mqttClient, historyManager, settingsManager, this);
+    connect(syncManager, &SyncManager::stateApplied, this, [this]() {
+        // Пришло удалённое состояние → обновляем меню и сохраняем на диск.
+        rebuildMenu();
+        persistHistory();
+    });
+    syncManager->applySettings();
 }
 
 
@@ -208,6 +226,12 @@ SmartClipApp::SmartClipApp(QObject *parent)
 void SmartClipApp::show()
 {
     trayIcon.show();
+}
+
+void SmartClipApp::notifySync()
+{
+    if (syncManager)
+        syncManager->notifyLocalChange();
 }
 
 void SmartClipApp::handleClipboardChange()
@@ -238,6 +262,7 @@ void SmartClipApp::handleClipboardChange()
 
     historyManager->addToHistory(text);
     persistHistory();   // сохранить сразу (не ждать таймер)
+    notifySync();       // поделиться новым клипом
     rebuildMenu();
 }
 
@@ -278,6 +303,10 @@ void SmartClipApp::onSettings()
         // Trim history if max items changed
         historyManager->setMaxItems(settingsManager->maxItems());
         
+        // Перезапустить сетевой синк под новые настройки (вкл/выкл/брокер).
+        if (syncManager)
+            syncManager->applySettings();
+        
         // Rebuild menu to reflect any changes
         rebuildMenu();
     }
@@ -301,6 +330,7 @@ void SmartClipApp::toggleItemMask(const QString &text)
 {
     historyManager->setMaskInMenu(text, !historyManager->maskInMenu(text));
     persistHistory();   // не терять зашифрованный режим при перезапуске
+    notifySync();
 }
 
 bool SmartClipApp::promptComment(const QString &text, QString &out)
@@ -377,6 +407,7 @@ void SmartClipApp::onClearHistory()
         favoriteItemColors.clear();
     }
     persistHistory();
+    notifySync();   // удаления (tombstone'ы) должны доехать до других устройств
     rebuildMenu();
 }
 
@@ -397,6 +428,7 @@ void SmartClipApp::onToggleFavorite(const QString &text)
     }
 
     persistHistory();   // избранное должно пережить перезапуск
+    notifySync();
     rebuildMenu();
 }
 
@@ -534,6 +566,7 @@ void SmartClipApp::rebuildMenu()
                 if (promptComment(text, newComment)) {
                     historyManager->setComment(text, newComment);
                     persistHistory();
+                    notifySync();
                 }
             } else if (revealMode) {
                 // РЕЖИМ ВСКРЫТИЯ (пароли), как на macOS: клик переключает
@@ -550,6 +583,7 @@ void SmartClipApp::rebuildMenu()
                     clipboard->setText(text, QClipboard::Clipboard);
                 }
                 persistHistory();
+                notifySync();   // одиночный usesCount — не срочно, но пусть уходит
             }
             rebuildMenu();
         });

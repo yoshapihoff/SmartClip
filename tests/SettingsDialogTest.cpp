@@ -102,7 +102,8 @@ void TestSettingsDialog::testAcceptWithValidSettings()
     QCOMPARE(m_settingsManager->maxItems(), 100);
     QCOMPARE(m_settingsManager->launchAtStartup(), true);
     QCOMPARE(m_settingsManager->saveHistoryOnExit(), false);
-    QCOMPARE(spy.count(), 3);
+    // 3 изменения + один setNetworkSettings (сетевой блок приложения)
+    QCOMPARE(spy.count(), 4);
 }
 
 void TestSettingsDialog::testAcceptWithInvalidMaxItems()

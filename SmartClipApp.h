@@ -15,6 +15,8 @@ class SettingsDialog;
 class HelpDialog;
 class HistoryManager;
 class LaunchAgentManager;
+class MqttClient;
+class SyncManager;
 
 class SmartClipApp final : public QObject
 {
@@ -54,6 +56,8 @@ private:
     static QString formatMenuLabel(const QString &text);
     void handleClipboardChange();
     void handleExitCleanup();
+    /** Сообщить синку о локальном изменении (если синк включён). */
+    void notifySync();
 
     QSystemTrayIcon trayIcon;
     QMenu trayMenu;
@@ -66,6 +70,8 @@ private:
     SettingsManager *settingsManager = nullptr;
     HistoryManager *historyManager = nullptr;
     LaunchAgentManager *launchAgentManager = nullptr;
+    MqttClient *mqttClient = nullptr;
+    SyncManager *syncManager = nullptr;
 
     QAction *titleAction = nullptr;
     QAction *settingsAction = nullptr;
