@@ -80,11 +80,24 @@ make -C ~/projects/cpp/SmartClip install PREFIX=$HOME/.local
 Если написано `НЕ найден` — синка в бинаре не будет: ставь `qt6-mqtt` и
 пересобирай (`rm -rf build-linux`).
 
+> ⚠️ **Важно: указывай `CMAKE_INSTALL_PREFIX` ПРИ КАЖДОМ configure.**
+> Каталог сборки кэширует префикс. После обычного `make build` префикс может
+> перескочить на `/usr/local` (дефолт) — тогда `cmake --install` попытается
+> писать в `/usr/local` (потребует root), а в `~/.local/bin` останется **старый**
+> бинарь. Если в `PATH` есть и `/usr/local/bin`, запускаться будет именно он.
+> Проверка: `grep CMAKE_INSTALL_PREFIX build-linux/CMakeCache.txt` и
+> `md5sum build-linux/SmartClip ~/.local/bin/SmartClip` — хеши должны совпадать.
+
 Устанавливается:
 
 - бинарь → `~/.local/bin/SmartClip`
 - ярлык → `~/.local/share/applications/`
 - иконки → `~/.local/share/icons/`
+
+Если раньше случайно поставил в `/usr/local` (старый бинарь в `PATH` раньше,
+чем `~/.local/bin`) — подчисти: `sudo rm -f /usr/local/bin/SmartClip`
+(и связанные `smartclip.desktop`/иконки), затем перезапусти оболочку, чтобы
+сбросился кэш команд (`hash -r` в bash/zsh).
 
 *(Опционально)* portable-сборка **AppImage** (без системного Qt6):
 
