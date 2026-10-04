@@ -160,6 +160,12 @@ mosquitto_sub -h mqtt.halfpi.ru -p 8883 --cafile "$(brew --prefix)/etc/openssl@3
 
 ## Включить MQTT-синк на macOS (опционально)
 
+> **Старый macOS (Monterey и ниже) / Qt 6.5.x:** официальный Qt-инсталлятор для
+> ветки 6.5 **не предлагает модуль Qt MQTT** (для `mac_x64/…/qt6_653` пакета
+> `…addons.qtmqtt` нет). Поэтому модуль собирается **из исходников** против
+> установленного Qt 6.5.3 — см. Путь C ниже. API, который использует SmartClip,
+> в 6.5.3 присутствует (проверено).
+
 Если нужна именно сетевая синхронизация на Mac, `qt@6` из Homebrew не подойдёт —
 модуля MQTT в нём нет. Два пути:
 
@@ -177,7 +183,7 @@ cmake --build build-macos -j$(sysctl -n hw.ncpu)
 
 В выводе configure должно появиться `Qt6::Mqtt найден`.
 
-**Путь B — собрать Qt MQTT из исходников.**
+**Путь B — собрать Qt MQTT из исходников (для Qt 6.11 и т.п.).**
 ```bash
 git clone --branch v6.11.0 git://code.qt.io/qt/qtmqtt.git
 cmake -S qtmqtt -B qtmqtt/build -DCMAKE_PREFIX_PATH="$(brew --prefix qt@6)"
@@ -185,7 +191,29 @@ cmake --build qtmqtt/build
 cmake --install qtmqtt/build
 ```
 
-После этого `find_package(Qt6 COMPONENTS Mqtt)` в основном проекте найдёт модуль.
+**Путь C — для Qt 6.5.3 (старый macOS, напр. Monterey).**
+Ветка `6.5` модуля поддерживается до `v6.5.10-lts-lgpl`. Собираем против
+твоего Qt 6.5.3:
+
+```bash
+# Путь к Qt 6.5.3 (уточни у себя: Online Installer обычно ~/Qt/6.5.3/macos,
+# Homebrew — $(brew --prefix qt@6))
+QTP=/Users/<user>/Qt/6.5.3/macos
+
+git clone --branch 6.5 https://github.com/qt/qtmqtt.git
+cd qtmqtt
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QTP"
+cmake --build build -j$(sysctl -n hw.ncpu)
+cmake --install build        # в тот же префикс Qt (может понадобиться sudo)
+```
+
+В офлайне (приватный форк) то же самое: `code.qt.io/qt/qtmqtt.git`.
+
+Затем пересобери SmartClip (см. Шаг 1) — в конфигурации должно появиться
+`Qt6::Mqtt найден`. Если ставил модуль в **отдельный** префикс, добавь и его в
+`CMAKE_PREFIX_PATH`: `-DCMAKE_PREFIX_PATH="$QTP;/path/to/mqtt/prefix"`.
+
+После любого из путей `find_package(Qt6 COMPONENTS Mqtt)` в проекте найдёт модуль.
 
 ---
 
