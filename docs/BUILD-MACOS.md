@@ -235,6 +235,10 @@ rm -f ~/Library/LaunchAgents/com.yoshapihoff.smartclip.plist   # если вкл
 
 ## Если синк не поднимается
 
+- **Сначала глянь статус прямо в приложении:** Settings → Network sync →
+  строка **Connection status** + кнопка **«Проверить…»**. Если написано
+  «Недоступно: сборка без модуля Qt6::Mqtt» — бинарь собран без Qt MQTT
+  (см. раздел выше про Homebrew/Online Installer), синка в нём нет.
 - Запусти приложение из терминала, чтобы видеть лог:
   `~/projects/cpp/SmartClip/build-macos/SmartClip.app/Contents/MacOS/SmartClip`
   — там будут ошибки MQTT/TLS.

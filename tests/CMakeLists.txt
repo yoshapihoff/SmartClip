@@ -17,6 +17,11 @@ qt_add_executable(SettingsDialogTest
     ${CMAKE_SOURCE_DIR}/SettingsDialog.cpp
     ${CMAKE_SOURCE_DIR}/SettingsManager.cpp
     ${CMAKE_SOURCE_DIR}/Crypto.cpp
+    # Статус соединения в диалоге требует SyncManager (+ его зависимости).
+    ${CMAKE_SOURCE_DIR}/SyncManager.cpp
+    ${CMAKE_SOURCE_DIR}/MqttClient.cpp
+    ${CMAKE_SOURCE_DIR}/SyncEngine.cpp
+    ${CMAKE_SOURCE_DIR}/HistoryManager.cpp
 )
 
 target_link_libraries(SettingsDialogTest
@@ -28,6 +33,11 @@ target_link_libraries(SettingsDialogTest
 if(OpenSSL_FOUND)
     target_link_libraries(SettingsDialogTest PRIVATE OpenSSL::Crypto)
     target_compile_definitions(SettingsDialogTest PRIVATE SMARTCLIP_HAVE_OPENSSL)
+endif()
+
+if(Qt6Mqtt_FOUND)
+    target_link_libraries(SettingsDialogTest PRIVATE Qt6::Mqtt)
+    target_compile_definitions(SettingsDialogTest PRIVATE SMARTCLIP_HAVE_MQTT)
 endif()
 
 qt_add_executable(HistoryManagerTest

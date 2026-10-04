@@ -18,6 +18,15 @@ class MqttClient final : public QObject
     Q_OBJECT
 
 public:
+    /** Состояние соединения с брокером (для отображения в UI). */
+    enum class Status {
+        Unavailable,   // модуль Qt MQTT не собран
+        Disconnected,  // настроен, но не подключён
+        Connecting,
+        Connected,
+        Error,         // ошибка соединения (текст — lastError())
+    };
+
     explicit MqttClient(QObject *parent = nullptr);
     ~MqttClient() override;
 
@@ -35,23 +44,34 @@ public:
 
     static bool available();
 
+    Status status() const { return m_status; }
+    QString lastError() const { return m_lastError; }
+    /** Человекочитаемый статус (для UI/лога). */
+    QString statusText() const;
+
 signals:
     void connected();
     void disconnected();
     void messageReceived(const QString &topic, const QByteArray &payload);
     void errorOccurred(const QString &error);
+    /** Статус изменился (для обновления индикатора в UI). */
+    void statusChanged();
 
 private slots:
     void onConnected();
     void onDisconnected();
 
 private:
+    void setStatus(Status s, const QString &error = QString());
+
     QString m_host;
     int m_port = 1883;
     bool m_tls = false;
     QString m_user;
     QString m_password;
     QString m_subscribeTopic;   // на что подписаны (переподписываемся при connect)
+    Status m_status = Status::Disconnected;
+    QString m_lastError;
 
 #ifdef SMARTCLIP_HAVE_MQTT
     QMqttClient *m_client = nullptr;

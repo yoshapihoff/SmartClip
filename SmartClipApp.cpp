@@ -294,7 +294,7 @@ void SmartClipApp::onHelp()
 
 void SmartClipApp::onSettings()
 {
-    SettingsDialog dialog(settingsManager);
+    SettingsDialog dialog(settingsManager, syncManager);
     if (dialog.exec() == QDialog::Accepted) {
         // Settings are automatically saved by SettingsManager when changed
         // Apply launch at startup if changed

@@ -36,18 +36,31 @@ public:
     void stop();
     bool isActive() const;
 
+    /** Строка человекочитаемого статуса для UI (напр. «Подключено»). */
+    QString statusText() const;
+    /** Человекочитаемая причина, если синк не активен (или пусто). */
+    QString inactiveReason() const;
+
+    /** Начать подключение заново (из настроек, applySettings). */
+    void reconnectNow();
+    /** Разово подключиться и проверить связь (кнопка в настройках). */
+    void checkNow();
+
 signals:
     /** Удалённое состояние применено к локальной истории (нужен rebuild UI). */
     void stateApplied();
+    /** Статус соединения изменился (для обновления индикатора в UI). */
+    void statusChanged();
+
+public slots:
+    /** Локальное изменение (буфер/избранное/маска/комментарий/очистка). */
+    void notifyLocalChange();
 
 private slots:
     void onConnected();
     void onMessage(const QString &topic, const QByteArray &payload);
     void flushPendingPublish();
-
-public slots:
-    /** Локальное изменение (буфер/избранное/маска/комментарий/очистка). */
-    void notifyLocalChange();
+    void onClientStatusChanged();
 
 private:
     void publishState();

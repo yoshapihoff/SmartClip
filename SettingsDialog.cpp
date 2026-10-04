@@ -1,5 +1,7 @@
 #include "SettingsDialog.h"
 #include "SettingsManager.h"
+#include "MqttClient.h"
+#include "SyncManager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
@@ -8,13 +10,22 @@
 #include <QPushButton>
 #include <QGroupBox>
 
-SettingsDialog::SettingsDialog(SettingsManager *settingsManager, QWidget *parent)
+SettingsDialog::SettingsDialog(SettingsManager *settingsManager,
+                               SyncManager *syncManager, QWidget *parent)
     : QDialog(parent)
     , m_settingsManager(settingsManager)
+    , m_syncManager(syncManager)
 {
     setupUI();
     loadSettingsToUI();
-    
+    updateSyncStatus();
+
+    // Статус соединения может измениться после нажатия «Проверить…».
+    if (m_syncManager) {
+        connect(m_syncManager, &SyncManager::statusChanged,
+                this, &SettingsDialog::updateSyncStatus);
+    }
+
     setWindowTitle("Settings");
     setModal(true);
 }
@@ -83,6 +94,25 @@ void SettingsDialog::setupUI()
     m_roomEdit->setPlaceholderText("smartclip");
     syncLayout->addRow("Room", m_roomEdit);
 
+    // ── Статус соединения с брокером ──
+    // Живой индикатор: «Недоступно / Выключено / Подключение… / Подключено /
+    // Ошибка». Кнопка «Проверить…» инициирует подключение, не закрывая диалог.
+    QHBoxLayout *statusLayout = new QHBoxLayout();
+    QLabel *statusCaption = new QLabel("Connection status:", syncGroup);
+    m_syncStatusLabel = new QLabel(syncGroup);
+    m_syncStatusLabel->setWordWrap(true);
+    m_syncStatusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    QPushButton *checkButton = new QPushButton("Проверить…", syncGroup);
+    checkButton->setToolTip(
+        "Подключиться к брокеру прямо сейчас и показать результат.");
+    statusLayout->addWidget(statusCaption);
+    statusLayout->addWidget(m_syncStatusLabel, 1);
+    statusLayout->addWidget(checkButton);
+    syncLayout->addRow(statusLayout);
+
+    connect(checkButton, &QPushButton::clicked,
+            this, &SettingsDialog::onCheckConnection);
+
     mainLayout->addWidget(syncGroup);
 
     connect(m_syncEnabledCheck, &QCheckBox::toggled,
@@ -123,6 +153,67 @@ void SettingsDialog::updateSyncFieldsEnabled()
     m_encPasswordEdit->setEnabled(on);
     m_roleCombo->setEnabled(on);
     m_roomEdit->setEnabled(on);
+}
+
+void SettingsDialog::updateSyncStatus()
+{
+    if (!m_syncStatusLabel)
+        return;
+
+    QString text;
+    QString color;
+
+    if (m_syncManager) {
+        // Живой статус клиента (соединение, ошибки) — берём у SyncManager.
+        text = m_syncManager->statusText();
+        // Цветовая маркировка (кружок-индикатор).
+        if (text.startsWith(QStringLiteral("Подключено")))        color = "#2ec27e";
+        else if (text.startsWith(QStringLiteral("Ошибка")))       color = "#e01b24";
+        else if (text.startsWith(QStringLiteral("Подключение"))) color = "#f5c211";
+        else                                                      color = "#9a9996";
+    } else if (!m_settingsManager) {
+        text = QStringLiteral("Нет настроек");
+        color = "#9a9996";
+    } else if (!m_settingsManager->syncEnabled()) {
+        text = QStringLiteral("Выключено (синхронизация не включена)");
+        color = "#9a9996";
+    } else if (!MqttClient::available()) {
+        text = QStringLiteral("Недоступно: сборка без модуля Qt6::Mqtt");
+        color = "#e01b24";
+    } else {
+        text = QStringLiteral("Настроено — проверка при открытии/OK");
+        color = "#9a9996";
+    }
+
+    m_syncStatusLabel->setText(
+        QStringLiteral("<span style='color:%1'>&#9679;</span> %2")
+            .arg(color, text.toHtmlEscaped()));
+}
+
+void SettingsDialog::onCheckConnection()
+{
+    if (!m_settingsManager) {
+        updateSyncStatus();
+        return;
+    }
+
+    // Сначала переносим ТЕКУЩИЕ значения полей в менеджер (как при OK),
+    // чтобы проверялось именно то, что введено сейчас, — и только потом
+    // инициируем подключение, не закрывая диалог.
+    m_settingsManager->setNetworkSettings(
+        m_syncEnabledCheck->isChecked(),
+        m_brokerHostEdit->text(),
+        m_brokerPortSpin->value(),
+        m_useTlsCheck->isChecked(),
+        m_brokerUserEdit->text(),
+        m_brokerPasswordEdit->text(),
+        m_encPasswordEdit->text(),
+        m_roleCombo->currentData().toString(),
+        m_roomEdit->text());
+
+    if (m_syncManager)
+        m_syncManager->checkNow();
+    updateSyncStatus();
 }
 
 void SettingsDialog::loadSettingsToUI()

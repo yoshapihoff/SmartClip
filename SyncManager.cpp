@@ -139,12 +139,63 @@ SyncManager::SyncManager(MqttClient *client, HistoryManager *history,
                 this, &SyncManager::onMessage);
         connect(m_client, &MqttClient::errorOccurred, this,
                 [](const QString &e) { qWarning() << "SmartClip sync:" << e; });
+        // Пробрасываем изменение статуса в UI (индикатор в настройках).
+        connect(m_client, &MqttClient::statusChanged,
+                this, &SyncManager::onClientStatusChanged);
     }
+}
+
+void SyncManager::onClientStatusChanged()
+{
+    emit statusChanged();
 }
 
 bool SyncManager::isActive() const
 {
     return m_periodic && m_periodic->isActive();
+}
+
+QString SyncManager::inactiveReason() const
+{
+    if (isActive())
+        return QString();
+    if (!m_settings || !m_settings->syncEnabled())
+        return QStringLiteral("синхронизация выключена");
+    if (!MqttClient::available())
+        return QStringLiteral("сборка без модуля Qt6::Mqtt");
+    if (m_settings->brokerHost().trimmed().isEmpty())
+        return QStringLiteral("не задан Broker host");
+    if (m_settings->syncEncryptionPassword().isEmpty())
+        return QStringLiteral("не задан Encryption password");
+    return QStringLiteral("не активна");
+}
+
+QString SyncManager::statusText() const
+{
+    if (!m_client)
+        return QStringLiteral("Нет клиента");
+    if (!isActive()) {
+        const QString why = inactiveReason();
+        return why.isEmpty() ? QStringLiteral("Отключено")
+                             : QStringLiteral("Выключено (") + why + QStringLiteral(")");
+    }
+    return m_client->statusText();
+}
+
+void SyncManager::reconnectNow()
+{
+    if (!isActive())
+        return;
+    if (m_client)
+        m_client->connectToBroker();
+}
+
+void SyncManager::checkNow()
+{
+    // Кнопка «Проверить»: применяем текущие настройки и пробуем подключиться,
+    // не дожидаясь OK. Настройки уже сохранены менеджером при изменении полей.
+    applySettings();
+    reconnectNow();
 }
 
 QString SyncManager::topic() const
@@ -179,6 +230,7 @@ void SyncManager::applySettings()
 
     if (!want) {
         stop();
+        emit statusChanged();
         return;
     }
 
@@ -192,6 +244,8 @@ void SyncManager::applySettings()
 
     if (!m_periodic->isActive())
         m_periodic->start();
+
+    emit statusChanged();
 }
 
 void SyncManager::stop()

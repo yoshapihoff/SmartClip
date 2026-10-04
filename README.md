@@ -214,9 +214,11 @@ libsecret (`secret-tool` из пакета `libsecret`).
 ### Настройки (Settings → Network sync)
 
 `Enable network sync`, `Broker host`, `Port`, `Use TLS`, `Login`, `Password`,
-`Encryption password`, `Role` (Master/Slave), `Room`. Пароли брокера и общий
-пароль шифрования пишутся в `settings.yml` **зашифрованными** ключом из
-системного хранилища.
+`Encryption password`, `Role` (Master/Slave), `Room`, а также строка
+**Connection status** с живым индикатором (Подключение… / Подключено /
+Ошибка: …) и кнопкой **«Проверить…»** — подключается к брокеру, не закрывая
+диалог. Пароли брокера и общий пароль шифрования пишутся в `settings.yml`
+**зашифрованными** ключом из системного хранилища.
 
 **Зависимость:** пакет **Qt MQTT** (`qt6-mqtt` в Arch/Manjaro,
 `libqt6mqtt6`/`qt6-mqtt-dev` в Debian/Ubuntu). Модуль **опционален**: без него

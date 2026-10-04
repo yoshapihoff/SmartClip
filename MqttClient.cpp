@@ -14,9 +14,61 @@
 MqttClient::MqttClient(QObject *parent)
     : QObject(parent)
 {
+#ifdef SMARTCLIP_HAVE_MQTT
+    m_client = new QMqttClient(this);
+    // Сигналы подключаем ОДИН раз здесь (а не в connectToBroker), иначе при
+    // каждом applySettings копились бы дублирующие обработчики (двойной приём).
+    connect(m_client, &QMqttClient::connected, this, &MqttClient::onConnected);
+    connect(m_client, &QMqttClient::disconnected, this, &MqttClient::onDisconnected);
+    connect(m_client, &QMqttClient::messageReceived, this,
+            [this](const QByteArray &message, const QMqttTopicName &topic) {
+                emit messageReceived(topic.name(), message);
+            });
+    connect(m_client, &QMqttClient::errorChanged, this,
+            [this](QMqttClient::ClientError e) {
+                if (e == QMqttClient::NoError)
+                    return;
+                const QString err = QStringLiteral("MQTT error: %1").arg(int(e));
+                setStatus(Status::Error, err);
+                emit errorOccurred(err);
+            });
+    connect(m_client, &QMqttClient::stateChanged, this,
+            [this](QMqttClient::ClientState st) {
+                if (st == QMqttClient::Connecting)
+                    setStatus(Status::Connecting);
+                else if (st == QMqttClient::Disconnected
+                         && m_status != Status::Error)
+                    setStatus(Status::Disconnected);
+            });
+#else
+    m_status = Status::Unavailable;
+#endif
 }
 
 MqttClient::~MqttClient() = default;
+
+void MqttClient::setStatus(Status s, const QString &error)
+{
+    if (m_status == s && m_lastError == error)
+        return;
+    m_status = s;
+    m_lastError = error;
+    emit statusChanged();
+}
+
+QString MqttClient::statusText() const
+{
+    if (!available())
+        return QStringLiteral("Недоступно: сборка без модуля Qt6::Mqtt");
+    switch (m_status) {
+    case Status::Unavailable:  return QStringLiteral("Недоступно");
+    case Status::Disconnected: return QStringLiteral("Отключено");
+    case Status::Connecting:   return QStringLiteral("Подключение…");
+    case Status::Connected:    return QStringLiteral("Подключено");
+    case Status::Error:        return QStringLiteral("Ошибка: ") + m_lastError;
+    }
+    return QString();
+}
 
 bool MqttClient::available()
 {
@@ -58,25 +110,14 @@ void MqttClient::connectToBroker()
     if (m_client->state() != QMqttClient::Disconnected)
         return;
 
-    connect(m_client, &QMqttClient::connected, this, &MqttClient::onConnected,
-            Qt::UniqueConnection);
-    connect(m_client, &QMqttClient::disconnected, this,
-            &MqttClient::onDisconnected, Qt::UniqueConnection);
-    connect(m_client, &QMqttClient::messageReceived, this,
-            [this](const QByteArray &message, const QMqttTopicName &topic) {
-                emit messageReceived(topic.name(), message);
-            });
-    connect(m_client, &QMqttClient::errorChanged, this,
-            [this](QMqttClient::ClientError e) {
-                if (e != QMqttClient::NoError)
-                    emit errorOccurred(
-                        QStringLiteral("MQTT error: %1").arg(int(e)));
-            });
+    m_lastError.clear();
+    setStatus(Status::Connecting);
 
     if (m_tls) {
 #ifndef QT_NO_SSL
         m_client->connectToHostEncrypted(QSslConfiguration::defaultConfiguration());
 #else
+        setStatus(Status::Error, QStringLiteral("TLS недоступен в этой сборке Qt"));
         emit errorOccurred(QStringLiteral("TLS недоступен в этой сборке Qt"));
 #endif
     } else {
@@ -108,11 +149,14 @@ void MqttClient::onConnected()
     if (m_client && !m_subscribeTopic.isEmpty())
         m_client->subscribe(QMqttTopicFilter(m_subscribeTopic));
 #endif
+    setStatus(Status::Connected);
     emit connected();
 }
 
 void MqttClient::onDisconnected()
 {
+    if (m_status != Status::Error)
+        setStatus(Status::Disconnected);
     emit disconnected();
 }
 
