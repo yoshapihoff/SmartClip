@@ -39,3 +39,7 @@ moc_*.cpp
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Built artifacts (не отслеживаем — генерируются сборкой)
+SmartClip-x86_64.AppImage
+*.AppDir/
