@@ -44,6 +44,9 @@ brew install qt@6 cmake
 
 ## Сборка
 
+> Пошаговые гайды (зависимости → сборка → установка → включение MQTT-синка):
+> **[Linux](docs/BUILD-LINUX.md)** · **[macOS](docs/BUILD-MACOS.md)**.
+
 ### Быстрый старт (через Makefile)
 
 ```bash
