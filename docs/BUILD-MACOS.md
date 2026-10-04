@@ -165,6 +165,11 @@ mosquitto_sub -h mqtt.halfpi.ru -p 8883 --cafile "$(brew --prefix)/etc/openssl@3
 > `…addons.qtmqtt` нет). Поэтому модуль собирается **из исходников** против
 > установленного Qt 6.5.3 — см. Путь C ниже. API, который использует SmartClip,
 > в 6.5.3 присутствует (проверено).
+>
+> ⚠️ **Бери ТЕГ, а не ветку.** Ветка `6.5` содержит уже 6.5.10 — CMake потребует
+> Qt 6.5.10 и упадёт на версии. Нужен именно тег `v6.5.3` (или коммит с
+> `QT_REPO_MODULE_VERSION "6.5.3"`). Номер версии модуля обязан **точно
+> совпадать** с твоим Qt (6.5.3 ↔ 6.5.3).
 
 Если нужна именно сетевая синхронизация на Mac, `qt@6` из Homebrew не подойдёт —
 модуля MQTT в нём нет. Два пути:
@@ -196,12 +201,15 @@ cmake --install qtmqtt/build
 твоего Qt 6.5.3:
 
 ```bash
-# Путь к Qt 6.5.3 (уточни у себя: Online Installer обычно ~/Qt/6.5.3/macos,
-# Homebrew — $(brew --prefix qt@6))
-QTP=/Users/<user>/Qt/6.5.3/macos
+# Путь к Qt 6.5.3 (Online Installer обычно ~/Qt/6.5.3/macos; у Лёши —
+# /Volumes/HDD/qt/6.5.3/macos).
+QTP=/Volumes/HDD/qt/6.5.3/macos
 
-git clone --branch 6.5 https://github.com/qt/qtmqtt.git
+git clone https://github.com/qt/qtmqtt.git
 cd qtmqtt
+git fetch --tags
+git checkout v6.5.3          # ИМЕННО тег: версия модуля = 6.5.3
+rm -rf build
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QTP"
 cmake --build build -j$(sysctl -n hw.ncpu)
 cmake --install build        # в тот же префикс Qt (может понадобиться sudo)
