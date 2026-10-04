@@ -214,6 +214,16 @@ SmartClipApp::SmartClipApp(QObject *parent)
     mqttClient = new MqttClient(this);
     syncManager = new SyncManager(mqttClient, historyManager, settingsManager, this);
     connect(syncManager, &SyncManager::stateApplied, this, [this]() {
+        // Синхронизация могла ПЕРЕНАЗНАЧИТЬ цвета избранного (у ведомого
+        // избранное получает следующие свободные цвета). Локальный кэш
+        // favoriteItemColors иначе остался бы старым и перебивал бы
+        // авторитетный favoriteColorIndex при отрисовке меню → маркеры
+        // показывали бы прежние цвета. Поэтому пересобираем кэш из истории.
+        favoriteItemColors.clear();
+        for (const auto &item : historyManager->history()) {
+            if (item.favoriteColorIndex >= 0)
+                favoriteItemColors[item.text] = item.favoriteColorIndex;
+        }
         // Пришло удалённое состояние → обновляем меню и сохраняем на диск.
         rebuildMenu();
         persistHistory();
@@ -530,12 +540,16 @@ void SmartClipApp::rebuildMenu()
             QPainter painter(&pixmap);
             painter.setRenderHint(QPainter::Antialiasing);
 
-            // Приоритет: кеш favoriteItemColors → авторитетный favoriteColorIndex из HistoryItem → белый
+            // Авторитетный источник цвета — favoriteColorIndex из HistoryItem
+            // (его назначает SyncEngine::merge при синхронизации). Кэш
+            // favoriteItemColors — ТОЛЬКО фолбэк, если поле невалидно:
+            // раньше кэш перебивал его, и после синка у ведомого цвета
+            // избранного оставались старыми.
             int colorIndex = history.at(i).favoriteColorIndex;
-            if (favoriteItemColors.contains(text)) {
-                colorIndex = favoriteItemColors[text];
-            } else if (colorIndex < 0 || colorIndex > 32) {
-                colorIndex = 32; // fallback на белый
+            if (colorIndex < 0 || colorIndex > 32) {
+                colorIndex = favoriteItemColors.contains(text)
+                                 ? favoriteItemColors[text]
+                                 : 32; // fallback на белый
             }
             painter.setBrush(favoriteColors[colorIndex]);
             painter.setPen(Qt::NoPen);

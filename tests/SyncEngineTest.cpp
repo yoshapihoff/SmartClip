@@ -34,6 +34,7 @@ private slots:
     void testMasterCommentPriority();
     void testMasterMaskPriority();
     void testSlaveFavoritesGetNextColors();
+    void testSlaveFavoriteColorsOverridden();
     void testFavoriteLimit32();
     void testHistorySizeTrim();
     void testDeletionPropagates();
@@ -120,6 +121,42 @@ void TestSyncEngine::testSlaveFavoritesGetNextColors()
     // Ведомый сохранил избранное, но получил первый свободный цвет (1)
     QCOMPARE(colorOf("s0"), 1);
     QCOMPARE(colorOf("plain"), -1);
+}
+
+void TestSyncEngine::testSlaveFavoriteColorsOverridden()
+{
+    // Регресс (04.10.2026): у ведомого уже было избранное со своими цветами
+    // (красный=0, оранжевый=1). После синка у ведущего свои цвета (напр. 5,6).
+    // Ведомый должен ПОЛУЧИТЬ назначенные merge цвета, а не сохранить старые.
+    SyncEngine::NetworkState local, remote;
+    local.items = {mk("a", 1, 100, 5), mk("b", 1, 100, 6)};   // мастер
+    remote.items = {mk("a", 1, 100, 0), mk("b", 1, 100, 1)}; // ведомый: 0/1
+
+    const auto r = SyncEngine::merge(local, remote, true, 32);
+    auto colorOf = [&](const QString &t) {
+        for (const auto &it : r.items)
+            if (it.text == t)
+                return it.favoriteColorIndex;
+        return -999;
+    };
+    // Цвета мастера сохранились (0 и 1 свободны, но приоритет — цвета мастера)
+    QCOMPARE(colorOf("a"), 5);
+    QCOMPARE(colorOf("b"), 6);
+
+    // А теперь мастер с цветами 0/1, ведомый с 5/6 → цвета должны стать 0/1,
+    // а не остаться 5/6 (именно это ломалось в UI из-за кэша).
+    SyncEngine::NetworkState l2, r2;
+    l2.items = {mk("a", 1, 100, 0), mk("b", 1, 100, 1)};
+    r2.items = {mk("a", 1, 100, 5), mk("b", 1, 100, 6)};
+    const auto res = SyncEngine::merge(l2, r2, true, 32);
+    auto color2 = [&](const QString &t) {
+        for (const auto &it : res.items)
+            if (it.text == t)
+                return it.favoriteColorIndex;
+        return -999;
+    };
+    QCOMPARE(color2("a"), 0);
+    QCOMPARE(color2("b"), 1);
 }
 
 void TestSyncEngine::testFavoriteLimit32()
