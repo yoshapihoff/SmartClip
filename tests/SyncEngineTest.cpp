@@ -38,6 +38,7 @@ private slots:
     void testHistorySizeTrim();
     void testDeletionPropagates();
     void testResurrectAfterDelete();
+    void testTombstoneOnlyKeysDoNotCrash();
     void testOrderingFavoritesThenUsage();
 
     // ── HistoryManager (tombstones) ──
@@ -173,6 +174,33 @@ void TestSyncEngine::testDeletionPropagates()
     const auto r = SyncEngine::merge(local, remote, true, 32);
     QCOMPARE(r.items.size(), 0);
     QVERIFY(r.tombstones.contains("keep"));
+}
+
+void TestSyncEngine::testTombstoneOnlyKeysDoNotCrash()
+{
+    // Регресс: ключ есть ТОЛЬКО как tombstone (запись удалена с обеих сторон и
+    // отсутствует в обеих историях). Раньше merge разыменовывал nullptr
+    // (chosen = *si при si == nullptr) → SIGSEGV в QString::operator=.
+    SyncEngine::NetworkState local, remote;
+    local.tombstones.insert("gone", 100);
+    remote.tombstones.insert("gone", 200);
+
+    const auto r1 = SyncEngine::merge(local, remote, true, 32);
+    QVERIFY(r1.items.isEmpty());
+    QVERIFY(r1.tombstones.contains("gone"));
+
+    // Симметрично (localIsMaster = false) — тоже не должно падать.
+    const auto r2 = SyncEngine::merge(local, remote, false, 32);
+    QVERIFY(r2.items.isEmpty());
+    QVERIFY(r2.tombstones.contains("gone"));
+
+    // Смешанный случай: один ключ только-tombstone, другой живой.
+    SyncEngine::NetworkState l2 = local;
+    l2.items = {mk("live", 1, 300)};
+    const auto r3 = SyncEngine::merge(l2, remote, true, 32);
+    QCOMPARE(r3.items.size(), 1);
+    QCOMPARE(r3.items.first().text, QString("live"));
+    QVERIFY(r3.tombstones.contains("gone"));
 }
 
 void TestSyncEngine::testResurrectAfterDelete()

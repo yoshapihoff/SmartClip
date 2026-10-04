@@ -86,6 +86,16 @@ NetworkState merge(const NetworkState &local, const NetworkState &remote,
     for (const QString &t : order) {
         const HistoryManager::HistoryItem *mi = masterItems.value(t, nullptr);
         const HistoryManager::HistoryItem *si = slaveItems.value(t, nullptr);
+        const qint64 del = tombAt(t);
+
+        // Ключ может присутствовать ТОЛЬКО как tombstone (запись удалена с
+        // обеих сторон и её уже нет ни в одной истории). Раньше здесь был
+        // `chosen = *si` при si == nullptr → SIGSEGV в QString::operator=.
+        if (!mi && !si) {
+            if (del > 0)
+                tombstones.insert(t, del);
+            continue;
+        }
 
         HistoryManager::HistoryItem chosen;
         if (mi && si) {
@@ -101,7 +111,6 @@ NetworkState merge(const NetworkState &local, const NetworkState &remote,
             chosen = *si;
         }
 
-        const qint64 del = tombAt(t);
         if (del > 0 && del >= chosen.addedAtMs) {
             // Удаление свежее (или одновременно) появления — запись мертва.
             tombstones.insert(t, del);
