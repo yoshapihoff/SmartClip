@@ -22,6 +22,19 @@ HistoryItem mk(const QString &text, int usage, qint64 added, int color = -1,
     return it;
 }
 
+/** Версия mk с явными метками правки полей (LWW).
+ *  favTs/maskTs/commentTs = 0 → «поле не меняли» (легаси-правило ведущего). */
+HistoryItem mkTs(const QString &text, int usage, qint64 added, int color,
+                 bool mask, const QString &comment,
+                 qint64 favTs, qint64 maskTs, qint64 commentTs)
+{
+    HistoryItem it = mk(text, usage, added, color, mask, comment);
+    it.favChangedAtMs = favTs;
+    it.maskChangedAtMs = maskTs;
+    it.commentChangedAtMs = commentTs;
+    return it;
+}
+
 }  // namespace
 
 class TestSyncEngine : public QObject
@@ -41,6 +54,15 @@ private slots:
     void testResurrectAfterDelete();
     void testTombstoneOnlyKeysDoNotCrash();
     void testOrderingFavoritesThenUsage();
+
+    // ── LWW по меткам правки (05.10.2026) ──
+    void testFavoriteRemovalPropagates();
+    void testFavoriteAddPropagates();
+    void testCommentClearPropagates();
+    void testMaskToggleBothDirections();
+    void testEqualTimestampsMasterWins();
+    void testLegacyZeroTsUsesMasterRule();
+    void testFavTimestampsTransliterated();
 
     // ── HistoryManager (tombstones) ──
     void testRemoveItemCreatesTombstone();
@@ -263,6 +285,114 @@ void TestSyncEngine::testOrderingFavoritesThenUsage()
     QCOMPARE(r.items.at(0).text, QString("fav"));
     QCOMPARE(r.items.at(1).text, QString("plainHigh"));
     QCOMPARE(r.items.at(2).text, QString("plainLow"));
+}
+
+void TestSyncEngine::testFavoriteRemovalPropagates()
+{
+    // Ведомый СНЯЛ избранное (свежая метка) → после синка не избран нигде,
+    // даже несмотря на то что ведущий всё ещё считает элемент избранным.
+    SyncEngine::NetworkState local, remote;
+    local.items = {mkTs("a", 1, 100, 3, false, "", 100, 0, 0)};      // мастер: fav@100
+    remote.items = {mkTs("a", 1, 100, -1, false, "", 200, 0, 0)};    // ведомый снял @200
+    const auto r = SyncEngine::merge(local, remote, true, 32);
+    QCOMPARE(r.items.first().favoriteColorIndex, -1);
+    QCOMPARE(r.items.first().favChangedAtMs, qint64(200));
+
+    // Обратный случай: мастер снял позже — тоже не избран.
+    SyncEngine::NetworkState l2, r2;
+    l2.items = {mkTs("a", 1, 100, -1, false, "", 300, 0, 0)};
+    r2.items = {mkTs("a", 1, 100, 5, false, "", 100, 0, 0)};
+    const auto res = SyncEngine::merge(l2, r2, true, 32);
+    QCOMPARE(res.items.first().favoriteColorIndex, -1);
+}
+
+void TestSyncEngine::testFavoriteAddPropagates()
+{
+    // Ведомый добавил в избранное (свежая метка) → доезжает до мастера.
+    SyncEngine::NetworkState local, remote;
+    local.items = {mkTs("a", 1, 100, -1, false, "", 100, 0, 0)};     // мастер: не избран
+    remote.items = {mkTs("a", 1, 100, 7, false, "", 200, 0, 0)};    // ведомый добавил @200
+    const auto r = SyncEngine::merge(local, remote, true, 32);
+    QCOMPARE(r.items.first().favoriteColorIndex >= 0, true);
+    QCOMPARE(r.items.first().favChangedAtMs, qint64(200));
+}
+
+void TestSyncEngine::testCommentClearPropagates()
+{
+    // Ведомый ОЧИСТИЛ комментарий (пусто + свежая метка) → очистка доезжает.
+    SyncEngine::NetworkState local, remote;
+    local.items = {mkTs("a", 1, 100, -1, false, "master-note", 0, 0, 100)};
+    remote.items = {mkTs("a", 1, 100, -1, false, "", 0, 0, 200)};     // очищено @200
+    const auto r = SyncEngine::merge(local, remote, true, 32);
+    QCOMPARE(r.items.first().comment, QString(""));
+    QCOMPARE(r.items.first().commentChangedAtMs, qint64(200));
+
+    // А если комментарий ЗАДАН позже — берём его.
+    SyncEngine::NetworkState l2, r2;
+    l2.items = {mkTs("a", 1, 100, -1, false, "", 0, 0, 100)};
+    r2.items = {mkTs("a", 1, 100, -1, false, "slave-note", 0, 0, 200)};
+    const auto res = SyncEngine::merge(l2, r2, true, 32);
+    QCOMPARE(res.items.first().comment, QString("slave-note"));
+}
+
+void TestSyncEngine::testMaskToggleBothDirections()
+{
+    // Ведомый скрыл пароль позже мастера → скрыто.
+    SyncEngine::NetworkState local, remote;
+    local.items = {mkTs("a", 1, 100, -1, false, "", 0, 100, 0)};      // мастер: открыто @100
+    remote.items = {mkTs("a", 1, 100, -1, true, "", 0, 200, 0)};     // ведомый: скрыто @200
+    const auto r = SyncEngine::merge(local, remote, true, 32);
+    QCOMPARE(r.items.first().maskInMenu, true);
+
+    // Ведомый снял маску позже → открыто (тумблер в обе стороны).
+    SyncEngine::NetworkState l2, r2;
+    l2.items = {mkTs("a", 1, 100, -1, true, "", 0, 100, 0)};
+    r2.items = {mkTs("a", 1, 100, -1, false, "", 0, 200, 0)};
+    const auto res = SyncEngine::merge(l2, r2, true, 32);
+    QCOMPARE(res.items.first().maskInMenu, false);
+}
+
+void TestSyncEngine::testEqualTimestampsMasterWins()
+{
+    // Обе метки равны и >0 → приоритет ведущего (детерминированно).
+    // Ведущий: избран с цветом 4, маска вкл, комментарий «master».
+    // Ведомый: другой цвет (9), маска выкл, комментарий «slave».
+    SyncEngine::NetworkState local, remote;
+    local.items = {mkTs("a", 1, 100, 4, true, "master", 500, 500, 500)};
+    remote.items = {mkTs("a", 1, 100, 9, false, "slave", 500, 500, 500)};
+    const auto r = SyncEngine::merge(local, remote, true, 32);
+    QCOMPARE(r.items.first().maskInMenu, true);
+    QCOMPARE(r.items.first().comment, QString("master"));
+    QCOMPARE(r.items.first().favoriteColorIndex, 4);   // цвет ведущего
+
+    // Симметрично с ролью ведомого (master = remote) — побеждает remote.
+    const auto r2 = SyncEngine::merge(local, remote, false, 32);
+    QCOMPARE(r2.items.first().maskInMenu, false);
+    QCOMPARE(r2.items.first().comment, QString("slave"));
+    QCOMPARE(r2.items.first().favoriteColorIndex, 9);
+}
+
+void TestSyncEngine::testLegacyZeroTsUsesMasterRule()
+{
+    // Обе метки 0 (поле не меняли) → старые правила: пустой комментарий
+    // ведущего не затирает непустой ведомого.
+    SyncEngine::NetworkState local, remote;
+    local.items = {mk("a", 1, 100, -1, false, "")};
+    remote.items = {mk("a", 1, 100, -1, false, "slave-note")};
+    const auto r = SyncEngine::merge(local, remote, true, 32);
+    QCOMPARE(r.items.first().comment, QString("slave-note"));
+    QCOMPARE(r.items.first().commentChangedAtMs, qint64(0));
+}
+
+void TestSyncEngine::testFavTimestampsTransliterated()
+{
+    // max метка избранного едет дальше в объединённом состоянии (2-й хоп),
+    // чтобы знание о чужой правке не терялось у следующих устройств.
+    SyncEngine::NetworkState local, remote;
+    local.items = {mkTs("a", 1, 100, 3, false, "", 100, 0, 0)};
+    remote.items = {mkTs("a", 1, 100, -1, false, "", 250, 0, 0)};
+    const auto r = SyncEngine::merge(local, remote, true, 32);
+    QCOMPARE(r.items.first().favChangedAtMs, qint64(250));
 }
 
 void TestSyncEngine::testRemoveItemCreatesTombstone()

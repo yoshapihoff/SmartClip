@@ -39,6 +39,7 @@ private slots:
     void testEncryptedRoundTrip();
     void testMigrationFromPlaintext();
     void testCommentPersistence();
+    void testChangeTimestamps();
 
 private:
     HistoryManager *m_historyManager;
@@ -96,6 +97,35 @@ void TestHistoryManager::testCommentPersistence()
     hm2.loadHistory(m_testFilePath);
     QCOMPARE(hm2.comment("clip-with-note"), QString());
 }
+void TestHistoryManager::testChangeTimestamps()
+{
+    m_historyManager->addToHistory("clip");
+    // Новый элемент: поля никто не менял → метки 0 (легаси-правило ведущего).
+    QCOMPARE(m_historyManager->history().first().favChangedAtMs, qint64(0));
+    QCOMPARE(m_historyManager->history().first().maskChangedAtMs, qint64(0));
+    QCOMPARE(m_historyManager->history().first().commentChangedAtMs, qint64(0));
+
+    m_historyManager->setFavoriteColor("clip", 4);
+    m_historyManager->setMaskInMenu("clip", true);
+    m_historyManager->setComment("clip", "note");
+    QVERIFY(m_historyManager->history().first().favChangedAtMs > 0);
+    QVERIFY(m_historyManager->history().first().maskChangedAtMs > 0);
+    QVERIFY(m_historyManager->history().first().commentChangedAtMs > 0);
+
+    // Явная метка времени имеет приоритет над «сейчас».
+    m_historyManager->setComment("clip", "note2", 123456);
+    QCOMPARE(m_historyManager->history().first().commentChangedAtMs, qint64(123456));
+
+    // Метки переживают save/load (иначе LWW теряет знание о правках).
+    m_historyManager->saveHistory(m_testFilePath);
+    HistoryManager hm;
+    hm.loadHistory(m_testFilePath);
+    QCOMPARE(hm.history().first().favChangedAtMs,
+             m_historyManager->history().first().favChangedAtMs);
+    QVERIFY(hm.history().first().maskChangedAtMs > 0);
+    QCOMPARE(hm.history().first().commentChangedAtMs, qint64(123456));
+}
+
 void TestHistoryManager::testMigrationFromPlaintext()
 {
     if (!Crypto::available())

@@ -9,6 +9,18 @@
 #include <QDebug>
 #include <algorithm>
 
+#include <algorithm>
+
+namespace {
+
+/** Стенное время правки (мс). Единственный источник меток для LWW-слияния. */
+qint64 nowWallMs()
+{
+    return QDateTime::currentMSecsSinceEpoch();
+}
+
+}  // namespace
+
 HistoryManager::HistoryManager(QObject *parent)
     : QObject(parent)
 {
@@ -276,6 +288,21 @@ bool HistoryManager::loadHistory(const QString &filePath)
             current.comment = decodeField(val, m_key, &plain);
             if (plain && !current.comment.isEmpty())
                 migrate = true;
+        } else if (key == QLatin1String("fav_changed_at_ms")) {
+            bool ok = false;
+            const qint64 v = val.toLongLong(&ok);
+            if (ok && v > 0)
+                current.favChangedAtMs = v;
+        } else if (key == QLatin1String("mask_changed_at_ms")) {
+            bool ok = false;
+            const qint64 v = val.toLongLong(&ok);
+            if (ok && v > 0)
+                current.maskChangedAtMs = v;
+        } else if (key == QLatin1String("comment_changed_at_ms")) {
+            bool ok = false;
+            const qint64 v = val.toLongLong(&ok);
+            if (ok && v > 0)
+                current.commentChangedAtMs = v;
         }
     }
 
@@ -332,6 +359,17 @@ void HistoryManager::saveHistory(const QString &filePath) const
         out << "    added_at_ms: " << item.addedAtMs << "\n";
         out << "    favorite_color_index: " << item.favoriteColorIndex << "\n";
         out << "    mask_in_menu: " << (item.maskInMenu ? "1" : "0") << "\n";
+        // Метки правок — только если поле реально менялось (иначе строка не пишется,
+        // отсутствие поля при загрузке читается как 0 → легаси-правило ведущего).
+        if (item.favChangedAtMs > 0) {
+            out << "    fav_changed_at_ms: " << item.favChangedAtMs << "\n";
+        }
+        if (item.maskChangedAtMs > 0) {
+            out << "    mask_changed_at_ms: " << item.maskChangedAtMs << "\n";
+        }
+        if (item.commentChangedAtMs > 0) {
+            out << "    comment_changed_at_ms: " << item.commentChangedAtMs << "\n";
+        }
         if (!item.comment.isEmpty()) {
             out << "    comment_b64: " << encodeField(item.comment) << "\n";
         }
@@ -370,7 +408,8 @@ bool HistoryManager::isFavorite(const QString &text) const
     return favoriteColorIndex(text) != -1;
 }
 
-void HistoryManager::setFavoriteColor(const QString &text, int colorIndex)
+void HistoryManager::setFavoriteColor(const QString &text, int colorIndex,
+                                     qint64 changedAtMs)
 {
     auto it = std::find_if(m_history.begin(), m_history.end(),
                           [&text](HistoryItem &item) {
@@ -378,6 +417,9 @@ void HistoryManager::setFavoriteColor(const QString &text, int colorIndex)
                           });
     if (it != m_history.end()) {
         it->favoriteColorIndex = (colorIndex >= -1 && colorIndex <= 32) ? colorIndex : -1;
+        // Метка = время правки: явное изменение (добавление/снятие/смена
+        // цвета) делает поле «известным» и включает LWW при синке.
+        it->favChangedAtMs = (changedAtMs > 0) ? changedAtMs : nowWallMs();
         m_dirty = true;
     }
 }
@@ -425,7 +467,7 @@ void HistoryManager::incrementUsageCount(const QString &text)
     }
 }
 
-void HistoryManager::setMaskInMenu(const QString &text, bool mask)
+void HistoryManager::setMaskInMenu(const QString &text, bool mask, qint64 changedAtMs)
 {
     auto it = std::find_if(m_history.begin(), m_history.end(),
                           [&text](HistoryItem &item) {
@@ -433,6 +475,7 @@ void HistoryManager::setMaskInMenu(const QString &text, bool mask)
                           });
     if (it != m_history.end()) {
         it->maskInMenu = mask;
+        it->maskChangedAtMs = (changedAtMs > 0) ? changedAtMs : nowWallMs();
         m_dirty = true;
     }
 }
@@ -446,7 +489,8 @@ bool HistoryManager::maskInMenu(const QString &text) const
     return (it != m_history.end()) ? it->maskInMenu : false;
 }
 
-void HistoryManager::setComment(const QString &text, const QString &comment)
+void HistoryManager::setComment(const QString &text, const QString &comment,
+                                qint64 changedAtMs)
 {
     auto it = std::find_if(m_history.begin(), m_history.end(),
                           [&text](HistoryItem &item) {
@@ -454,6 +498,7 @@ void HistoryManager::setComment(const QString &text, const QString &comment)
                           });
     if (it != m_history.end()) {
         it->comment = comment;
+        it->commentChangedAtMs = (changedAtMs > 0) ? changedAtMs : nowWallMs();
         m_dirty = true;
     }
 }

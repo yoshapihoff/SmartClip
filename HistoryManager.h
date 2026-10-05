@@ -22,6 +22,14 @@ public:
         bool maskInMenu = false;
         /** Пользовательский комментарий к записи (показывается в скобках). */
         QString comment;
+
+        // ── Метки последнего ИЗМЕНЕНИЯ поля (мс, стенное время). ──────────
+        // 0 = поле пользователь НИКОГДА не менял → при синке действует
+        // старое правило «приоритет ведущего». >0 = время правки → при
+        // слиянии полей побеждает версия с большей меткой (LWW).
+        qint64 favChangedAtMs = 0;
+        qint64 maskChangedAtMs = 0;
+        qint64 commentChangedAtMs = 0;
     };
 
     explicit HistoryManager(QObject *parent = nullptr);
@@ -55,7 +63,8 @@ public:
     // Methods for favorites
     void toggleFavorite(const QString &text);
     bool isFavorite(const QString &text) const;
-    void setFavoriteColor(const QString &text, int colorIndex);
+    void setFavoriteColor(const QString &text, int colorIndex,
+                          qint64 changedAtMs = 0);
     int favoriteColorIndex(const QString &text) const;
     void sortHistory();
     
@@ -63,11 +72,12 @@ public:
     void incrementUsageCount(const QString &text);
 
     // Mask in menu (encrypted display)
-    void setMaskInMenu(const QString &text, bool mask);
+    void setMaskInMenu(const QString &text, bool mask, qint64 changedAtMs = 0);
     bool maskInMenu(const QString &text) const;
 
     // Комментарий к записи (режим «Комментарии»)
-    void setComment(const QString &text, const QString &comment);
+    void setComment(const QString &text, const QString &comment,
+                    qint64 changedAtMs = 0);
     QString comment(const QString &text) const;
 
     // Method to clear history

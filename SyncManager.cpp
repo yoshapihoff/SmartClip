@@ -34,6 +34,13 @@ QByteArray stateToJson(const SyncEngine::NetworkState &st,
         o.insert(QStringLiteral("m"), it.maskInMenu ? 1 : 0);
         if (!it.comment.isEmpty())
             o.insert(QStringLiteral("p"), it.comment);
+        // Метки последней правки полей (LWW). 0 = не менялось → поле не шлём.
+        if (it.favChangedAtMs > 0)
+            o.insert(QStringLiteral("fc"), double(it.favChangedAtMs));
+        if (it.maskChangedAtMs > 0)
+            o.insert(QStringLiteral("mc"), double(it.maskChangedAtMs));
+        if (it.commentChangedAtMs > 0)
+            o.insert(QStringLiteral("pc"), double(it.commentChangedAtMs));
         items.append(o);
     }
     QJsonArray del;
@@ -91,6 +98,9 @@ SyncEngine::NetworkState jsonToState(const QByteArray &data)
         it.favoriteColorIndex = c;
         it.maskInMenu = o.value(QStringLiteral("m")).toInt() != 0;
         it.comment = o.value(QStringLiteral("p")).toString();
+        it.favChangedAtMs = qint64(o.value(QStringLiteral("fc")).toDouble(0));
+        it.maskChangedAtMs = qint64(o.value(QStringLiteral("mc")).toDouble(0));
+        it.commentChangedAtMs = qint64(o.value(QStringLiteral("pc")).toDouble(0));
         st.items.push_back(it);
     }
 
