@@ -3,6 +3,7 @@
 #include <QProcess>
 #include <QByteArray>
 #include <QDebug>
+#include <QThread>
 #include <cstring>
 
 #if defined(SMARTCLIP_HAVE_OPENSSL)
@@ -262,20 +263,41 @@ bool storeKey(const QString &service, const QString &account,
 
 QByteArray loadOrCreateKey(const QString &service, const QString &account)
 {
-    QByteArray key = loadKey(service, account);
-    if (key.size() == kKeyLen)
-        return key;
+    // Ретраи: демон keyring (gnome-keyring/KWallet/Secret Service) при старте
+    // сессии может подниматься ПОЗЖЕ приложения (гонка на автозапуске). Две
+    // короткие попытки с паузой закрывают подавляющую часть таких случаев.
+    constexpr int kRetries = 2;          // дополнительных попыток после первой
+    constexpr int kRetryDelayMs = 700;
+
+    QByteArray key;
+    for (int attempt = 0; attempt <= kRetries; ++attempt) {
+        if (!init())
+            break;                        // нет OpenSSL — ретраи бессмысленны
+        key = loadKey(service, account);
+        if (key.size() == kKeyLen)
+            return key;
+        if (attempt < kRetries)
+            QThread::msleep(kRetryDelayMs);
+    }
+
+    // Ключа нет — создаём новый (только если CSPRNG работает).
     key = randomBytes(kKeyLen);
     if (key.size() != kKeyLen) {
         qWarning() << "SmartClip: генератор ключей недоступен (нет CSPRNG)";
         return {};
     }
-    if (!storeKey(service, account, key)) {
-        qWarning() << "SmartClip: не удалось сохранить ключ шифрования в"
-                   << keyringBackend();
-        return {};
+
+    // Запись в keyring — тоже с ретраями (демон мог ещё не быть готов).
+    for (int attempt = 0; attempt <= kRetries; ++attempt) {
+        if (storeKey(service, account, key))
+            return key;
+        if (attempt < kRetries)
+            QThread::msleep(kRetryDelayMs);
     }
-    return key;
+
+    qWarning() << "SmartClip: не удалось сохранить ключ шифрования в"
+               << keyringBackend();
+    return {};
 }
 
 }  // namespace Crypto
