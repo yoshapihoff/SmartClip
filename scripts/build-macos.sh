@@ -38,36 +38,78 @@ command -v cmake >/dev/null || die "cmake не найден: brew install cmake"
 
 cd "$PROJECT_DIR"
 
-# ── Поиск Qt6 ────────────────────────────────────────────────────────────
+# ── Поиск Qt6 (с ВАЛИДАЦИЕЙ: в префиксе должен быть lib/cmake/Qt6) ───────
+# Просто `qmake6 -query` недостаточно: он может указать на префикс без
+# CMake-конфига (напр. /usr/local/opt/qt без библиотеки cmake/Qt6), и CMake
+# падает с «Could not find Qt6Config.cmake». Перебираем варианты и берём
+# первый, где реально лежит Qt6Config.cmake.
+qt6_config_dir() {
+    local p="$1" c
+    [ -n "$p" ] || return 1
+    # pwd -P разрешает симлинки (brew /usr/local/opt/qt → /usr/local/Cellar/qt/…),
+    # и работает и на macOS (BSD), в отличие от `readlink -f`.
+    c="$(cd "$p" 2>/dev/null && pwd -P)" || return 1
+    local f
+    for f in "$c/lib/cmake/Qt6/Qt6Config.cmake" "$c/lib64/cmake/Qt6/Qt6Config.cmake"; do
+        [ -f "$f" ] && { dirname "$f"; return 0; }
+    done
+    return 1
+}
+
 QT_PREFIX=""
-if command -v qmake6 >/dev/null; then
-    QT_PREFIX="$(qmake6 -query QT_INSTALL_PREFIX)"
-elif command -v qtpaths6 >/dev/null; then
-    QT_PREFIX="$(qtpaths6 --install-prefix)"
-elif command -v brew >/dev/null && brew --prefix qt@6 >/dev/null 2>&1; then
-    QT_PREFIX="$(brew --prefix qt@6)"
+QT6_DIR=""
+try_qt() {
+    local p="$1" cfg
+    [ -n "$p" ] || return 1
+    cfg="$(qt6_config_dir "$p")" && { QT_PREFIX="$p"; QT6_DIR="$cfg"; return 0; }
+    return 1
+}
+
+QT_CANDS=()
+[ -n "${QT_PATH:-}" ] && QT_CANDS+=("$QT_PATH")
+# Приоритет — brew (по докам ставим qt@6), ЗАТЕМ qmake6: на macOS в PATH может
+# оказаться чужой qmake6 (напр. из conda) и увести на префикс без cmake/Qt6.
+if command -v brew >/dev/null 2>&1; then
+    QT_CANDS+=("$(brew --prefix qt@6 2>/dev/null)" "$(brew --prefix qt 2>/dev/null)" \
+               "$(brew --prefix 2>/dev/null)/opt/qt" "$(brew --prefix 2>/dev/null)/opt/qt@6")
 fi
-[ -n "$QT_PREFIX" ] || die "Qt6 не найден. Установи: brew install qt@6  (или задай QT_PATH=/path/to/Qt/6.x)"
+command -v qmake6   >/dev/null 2>&1 && QT_CANDS+=("$(qmake6 -query QT_INSTALL_PREFIX 2>/dev/null)")
+command -v qtpaths6 >/dev/null 2>&1 && QT_CANDS+=("$(qtpaths6 --install-prefix 2>/dev/null)")
+QT_CANDS+=(/usr/local/opt/qt@6 /opt/homebrew/opt/qt@6 /usr/local/opt/qt /opt/homebrew/opt/qt)
+# Qt Online Installer (типовые локации; у Лёши — /Volumes/HDD/qt)
+for d in /Volumes/HDD/qt /opt/Qt "$HOME/Qt"; do
+    [ -d "$d" ] || continue
+    hit="$(find "$d" -maxdepth 4 -path '*/macos/lib/cmake/Qt6/Qt6Config.cmake' -not -path '*/Examples/*' 2>/dev/null | head -1)"
+    [ -z "$hit" ] && hit="$(find "$d" -maxdepth 6 -name Qt6Config.cmake -path '*/cmake/*' \
+        -not -path '*/android*' -not -path '*/ios*' -not -path '*/wasm*' -not -path '*/qnx*' -not -path '*/Examples/*' 2>/dev/null | head -1)"
+    [ -n "$hit" ] && QT_CANDS+=("$(cd "$(dirname "$(dirname "$(dirname "$(dirname "$hit")")")")" 2>/dev/null && pwd)")
+done
+
+for c in ${QT_CANDS[@]+"${QT_CANDS[@]}"}; do try_qt "$c" && break; done
+if [ -z "$QT6_DIR" ]; then
+    warn "Qt6 с lib/cmake/Qt6 не найден. Проверены префиксы:"
+    for c in ${QT_CANDS[@]+"${QT_CANDS[@]}"}; do [ -n "$c" ] && warn "  - $c"; done
+    die "Установи 'brew install qt@6' или задай QT_PATH=/путь/к/Qt/6.x (напр. \$HOME/Qt/6.11.0/macos).\n     Найти реальный префикс: find /usr/local /opt/homebrew \\$HOME/Qt -name Qt6Config.cmake 2>/dev/null"
+fi
 
 # ── Поиск OpenSSL (обязателен: AES-256-GCM для шифрования истории) ────────
 OPENSSL_PREFIX=""
-if command -v brew >/dev/null && brew --prefix openssl@3 >/dev/null 2>&1; then
-    OPENSSL_PREFIX="$(brew --prefix openssl@3)"
-elif pkg-config --exists openssl 2>/dev/null; then
-    OPENSSL_PREFIX="$(pkg-config --variable=prefix openssl)"
-fi
+for c in "$(brew --prefix openssl@3 2>/dev/null)" "$(brew --prefix openssl 2>/dev/null)" \
+         /usr/local/opt/openssl@3 /opt/homebrew/opt/openssl@3 /usr/local/opt/openssl /opt/homebrew/opt/openssl; do
+    [ -n "$c" ] && { [ -f "$c/lib/libcrypto.dylib" ] || [ -f "$c/lib/libcrypto.a" ]; } && { OPENSSL_PREFIX="$c"; break; }
+done
 [ -n "$OPENSSL_PREFIX" ] || die "OpenSSL не найден (обязателен для шифрования). Установи: brew install openssl@3"
 
 log "Qt6:     $QT_PREFIX"
+log "Qt6_DIR: $QT6_DIR"
 log "OpenSSL: $OPENSSL_PREFIX"
-
-PREFIX_PATH="$QT_PREFIX;$OPENSSL_PREFIX"
-[ -n "${QT_PATH:-}" ] && PREFIX_PATH="$QT_PATH;$OPENSSL_PREFIX"
 
 log "Конфигурация ($BUILD_TYPE)…"
 cmake -S . -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
-    -DCMAKE_PREFIX_PATH="$PREFIX_PATH"
+    -DCMAKE_PREFIX_PATH="$QT_PREFIX;$OPENSSL_PREFIX" \
+    -DQt6_DIR="$QT6_DIR" \
+    -DOPENSSL_ROOT_DIR="$OPENSSL_PREFIX"
 
 log "Сборка ($JOBS потоков)…"
 cmake --build "$BUILD_DIR" --config "$BUILD_TYPE" --parallel "$JOBS"
