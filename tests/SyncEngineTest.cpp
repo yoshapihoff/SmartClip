@@ -52,6 +52,7 @@ private slots:
     void testFavoriteLimit32();
     void testHistorySizeTrim();
     void testDeletionPropagates();
+    void testDeletionBothDirections();
     void testResurrectAfterDelete();
     void testTombstoneOnlyKeysDoNotCrash();
     void testOrderingFavoritesThenUsage();
@@ -222,6 +223,33 @@ void TestSyncEngine::testHistorySizeTrim()
         if (it.text == "m45")
             has45 = true;
     QVERIFY(has45);
+}
+
+void TestSyncEngine::testDeletionBothDirections()
+{
+    // Удаление (tombstone) — без приоритетов master/slave: уезжает в обе
+    // стороны, кто бы ни удалил.
+    // (a) ведомый удалил → у ведущего запись исчезает.
+    {
+        SyncEngine::NetworkState local, remote;
+        local.items = {mk("x", 1, 100)};
+        remote.tombstones.insert("x", 500);
+        const auto r = SyncEngine::merge(local, remote, true, 32);
+        QVERIFY(r.items.isEmpty());
+        QVERIFY(r.tombstones.contains("x"));
+    }
+    // (b) ведущий удалил → у ведомого тоже исчезает.
+    {
+        SyncEngine::NetworkState local, remote;
+        local.tombstones.insert("x", 500);      // local = master
+        remote.items = {mk("x", 1, 100)};        // remote = slave
+        const auto r = SyncEngine::merge(local, remote, true, 32);
+        QVERIFY(r.items.isEmpty());
+        QVERIFY(r.tombstones.contains("x"));
+        // Симметрично при смене ролей — результат тот же.
+        const auto r2 = SyncEngine::merge(local, remote, false, 32);
+        QVERIFY(r2.items.isEmpty());
+    }
 }
 
 void TestSyncEngine::testDeletionPropagates()

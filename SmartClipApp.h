@@ -37,6 +37,7 @@ private slots:
     void onHelp();
     void onQuit();
     void onClearHistory();
+    void onDeleteItem(const QString &text);
     void onToggleFavorite(const QString &text);
     
     // Методы для управления цветами избранного
@@ -83,10 +84,14 @@ private:
     bool revealMode = false;
     QAction *commentModeAction = nullptr;  // «режим комментариев»
     bool commentMode = false;
+    QAction *deleteModeAction = nullptr;   // «режим удаления»
+    bool deleteMode = false;
     /** Модальное окно ввода комментария. true — нажали «Окей». */
     bool promptComment(const QString &text, QString &out);
     /** Сбросить все режимы (одноразовое поведение после действия). */
     void clearModes();
+    /** Сбросить только режим удаления (не трогая другие режимы). */
+    void resetDeleteMode();
     QTimer *iconThemeTimer = nullptr;   // периодическая проверка темы (Linux/Wayland)
     QTimer *historyAutosaveTimer = nullptr;   // авто-сохранение истории/избранного
     bool iconDarkValid = false;         // был ли уже применён цвет иконки

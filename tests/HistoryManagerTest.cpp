@@ -25,6 +25,7 @@ private slots:
     void testTrimToMaxItems_prefersToRemoveLowerUsageCount();
     void testTrimToMaxItems_removesOldestWhenSamePriority();
     void testClearHistory();
+    void testRemoveItemTombstone();
     void testToggleFavorite();
     void testIsFavorite();
     void testIncrementUsageCount();
@@ -376,6 +377,28 @@ void TestHistoryManager::testClearHistory()
     m_historyManager->clearHistory();
     QCOMPARE(m_historyManager->history().size(), 0);
     QCOMPARE(m_historyManager->isDirty(), true);
+}
+
+// Режим удаления: removeItem убирает одну запись + создаёт tombstone
+// (чтобы удаление синхронизировалось и не «воскресало»).
+void TestHistoryManager::testRemoveItemTombstone()
+{
+    m_historyManager->addToHistory("keep");
+    m_historyManager->addToHistory("remove-me");
+    QCOMPARE(m_historyManager->history().size(), 2);
+
+    m_historyManager->removeItem("remove-me");
+
+    QCOMPARE(m_historyManager->history().size(), 1);
+    QVERIFY(m_historyManager->tombstones().contains("remove-me"));
+    QVERIFY(!m_historyManager->tombstones().contains("keep"));
+    for (const auto &it : m_historyManager->history())
+        QVERIFY(it.text != "remove-me");
+    QCOMPARE(m_historyManager->isDirty(), true);
+
+    // Пустой текст — no-op, ничего не падает.
+    m_historyManager->removeItem("");
+    QCOMPARE(m_historyManager->history().size(), 1);
 }
 
 void TestHistoryManager::testToggleFavorite()

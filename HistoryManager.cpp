@@ -565,6 +565,23 @@ void HistoryManager::clearHistory()
 
 // ────────────────────────── удаление / воскрешение ──────────────────────────
 
+void HistoryManager::removeItem(const QString &text, qint64 whenMs)
+{
+    if (text.isEmpty())
+        return;
+    const qint64 ts = whenMs > 0 ? whenMs : nowWallMs();
+    // Tombstone — чтобы удаление доехало до других устройств и не «воскресло»
+    // при следующем синке (повторная копия текста снимет tombstone).
+    m_tombstones.insert(text, ts);
+    for (auto it = m_history.begin(); it != m_history.end(); ++it) {
+        if (it->text == text) {
+            m_history.erase(it);
+            break;
+        }
+    }
+    m_dirty = true;
+}
+
 void HistoryManager::setState(const QVector<HistoryItem> &items,
                               const QHash<QString, qint64> &tombstones)
 {

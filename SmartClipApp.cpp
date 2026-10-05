@@ -484,6 +484,18 @@ int SmartClipApp::getFavoriteColorIndex(const QString &text)
     return 32;
 }
 
+void SmartClipApp::onDeleteItem(const QString &text)
+{
+    // Удаляем одну запись (режим «Удаление»). История хранит tombstone, поэтому
+    // удаление синхронизируется на другие устройства БЕЗ приоритетов
+    // master/slave — tombstone уезжает по MQTT как обычное состояние.
+    historyManager->removeItem(text);
+    releaseFavoriteColor(text);
+    persistHistory();
+    notifySync();
+    // rebuildMenu() сделает вызвавший обработчик (после сброса режима).
+}
+
 void SmartClipApp::releaseFavoriteColor(const QString &text)
 {
     favoriteItemColors.remove(text);
@@ -493,7 +505,7 @@ void SmartClipApp::clearModes()
 {
     // Одноразовые режимы: после выполнения действия по клику режим сам гаснет.
     // Блокируем сигналы, чтобы тумблеры не вызывали лишний rebuildMenu().
-    const bool needRebuild = favoriteMode || revealMode || commentMode;
+    const bool needRebuild = favoriteMode || revealMode || commentMode || deleteMode;
     if (favoriteMode) {
         favoriteMode = false;
         if (favoriteModeAction) {
@@ -515,7 +527,27 @@ void SmartClipApp::clearModes()
             commentModeAction->setChecked(false);
         }
     }
+    if (deleteMode) {
+        deleteMode = false;
+        if (deleteModeAction) {
+            QSignalBlocker b(deleteModeAction);
+            deleteModeAction->setChecked(false);
+        }
+    }
     Q_UNUSED(needRebuild);
+}
+
+void SmartClipApp::resetDeleteMode()
+{
+    // Гасим только режим удаления (клик по элементу в нём не должен
+    // сбрасывать остальные включённые режимы).
+    if (!deleteMode && (!deleteModeAction || !deleteModeAction->isChecked()))
+        return;
+    deleteMode = false;
+    if (deleteModeAction) {
+        QSignalBlocker b(deleteModeAction);
+        deleteModeAction->setChecked(false);
+    }
 }
 
 void SmartClipApp::rebuildMenu()
@@ -598,6 +630,12 @@ void SmartClipApp::rebuildMenu()
                     persistHistory();
                     notifySync();
                 }
+            } else if (deleteMode) {
+                // РЕЖИМ УДАЛЕНИЯ: клик удаляет элемент из списка, режим
+                // гаснет. Удаление уезжает на другие устройства через
+                // tombstone (без приоритетов master/slave).
+                onDeleteItem(text);
+                resetDeleteMode();
             } else if (revealMode) {
                 // РЕЖИМ ВСКРЫТИЯ (пароли), как на macOS: клик переключает
                 // маску элемента — скрытый пароль показывается, повторный
@@ -664,6 +702,19 @@ void SmartClipApp::rebuildMenu()
     commentModeAction->setChecked(commentMode);
     commentModeAction->setText(QStringLiteral("Comments"));
     trayMenu.addAction(commentModeAction);
+
+    // «Режим удаления»: клик по элементу удаляет его из списка (одноразово).
+    if (!deleteModeAction) {
+        deleteModeAction = new QAction(this);
+        deleteModeAction->setCheckable(true);
+        connect(deleteModeAction, &QAction::toggled, this, [this](bool on) {
+            deleteMode = on;
+            rebuildMenu();
+        });
+    }
+    deleteModeAction->setChecked(deleteMode);
+    deleteModeAction->setText(QStringLiteral("Delete mode"));
+    trayMenu.addAction(deleteModeAction);
 
     if (clearHistoryAction) {
         trayMenu.addAction(clearHistoryAction);

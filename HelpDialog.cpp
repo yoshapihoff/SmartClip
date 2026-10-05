@@ -47,10 +47,10 @@ void HelpDialog::setupUI()
     mainLayout->addWidget(menuTitle);
 
     QLabel *menuText = new QLabel(
-        "The tray menu has three mode items — <b>Favorite mode</b>, "
-        "<b>Reveal passwords</b> and <b>Comments</b>. They carry no icons: "
-        "the mode is on when the item shows a <b>checkmark</b> and off when the "
-        "checkmark is absent. Click the item to toggle the mode.\n\n"
+        "The tray menu has four mode items — <b>Favorite mode</b>, "
+        "<b>Reveal passwords</b>, <b>Comments</b> and <b>Delete mode</b>. They "
+        "carry no icons: the mode is on when the item shows a <b>checkmark</b> "
+        "and off when the checkmark is absent. Click the item to toggle the mode.\n\n"
         "<b>Every mode is one-shot.</b> Turn a mode on, click one history item to "
         "apply its action, and the mode switches itself off again (the checkmark "
         "disappears). For Comments the mode clears when the dialog closes — "
@@ -138,8 +138,22 @@ void HelpDialog::setupUI()
     cmtText->setWordWrap(true);
     mainLayout->addWidget(cmtText);
 
-    // --- 4. Копирование и порядок в истории ---
-    QLabel *rankTitle = new QLabel("<b>4. Copying and how items are ranked</b>", this);
+    // --- 4. Удаление ---
+    QLabel *delTitle = new QLabel("<b>4. Delete mode — remove an item</b>", this);
+    mainLayout->addWidget(delTitle);
+
+    QLabel *delText = new QLabel(
+        "Turn on <b>Delete mode</b> in the menu, then <b>left-click</b> an item: it is "
+        "removed from the history and the mode switches off. Deletion is propagated to "
+        "your other devices if network sync is enabled — in both directions, regardless "
+        "of which device is master.",
+        this
+    );
+    delText->setWordWrap(true);
+    mainLayout->addWidget(delText);
+
+    // --- 5. Копирование и порядок в истории ---
+    QLabel *rankTitle = new QLabel("<b>5. Copying and how items are ranked</b>", this);
     mainLayout->addWidget(rankTitle);
 
     QLabel *rankText = new QLabel(
@@ -155,8 +169,8 @@ void HelpDialog::setupUI()
     rankText->setWordWrap(true);
     mainLayout->addWidget(rankText);
 
-    // --- 5. Безопасность / хранение ---
-    QLabel *secTitle = new QLabel("<b>5. Storage and security</b>", this);
+    // --- 6. Безопасность / хранение ---
+    QLabel *secTitle = new QLabel("<b>6. Storage and security</b>", this);
     mainLayout->addWidget(secTitle);
 
     QLabel *secText = new QLabel(
