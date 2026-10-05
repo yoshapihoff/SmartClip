@@ -384,6 +384,12 @@ void HistoryManager::saveHistory(const QString &filePath) const
             out << "    deleted_at_ms: " << it.value() << "\n";
         }
     }
+
+    // Файл содержит историю буфера (при неработающем keyring — открытым
+    // текстом). Закрываем права до владельца (0600), иначе при умолчании
+    // 0644 файл читаем другими пользователями системы.
+    out.flush();
+    f.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
 }
 
 void HistoryManager::toggleFavorite(const QString &text)
@@ -529,35 +535,6 @@ void HistoryManager::clearHistory()
 }
 
 // ────────────────────────── удаление / воскрешение ──────────────────────────
-
-void HistoryManager::removeItem(const QString &text, qint64 whenMs)
-{
-    if (text.isEmpty())
-        return;
-    const qint64 ts = whenMs > 0 ? whenMs : QDateTime::currentMSecsSinceEpoch();
-    m_tombstones.insert(text, ts);
-    for (auto it = m_history.begin(); it != m_history.end(); ++it) {
-        if (it->text == text) {
-            m_history.erase(it);
-            break;
-        }
-    }
-    m_dirty = true;
-}
-
-void HistoryManager::resurrect(const QString &text)
-{
-    if (m_tombstones.remove(text) > 0)
-        m_dirty = true;
-}
-
-void HistoryManager::clearTombstones()
-{
-    if (!m_tombstones.isEmpty()) {
-        m_tombstones.clear();
-        m_dirty = true;
-    }
-}
 
 void HistoryManager::setState(const QVector<HistoryItem> &items,
                               const QHash<QString, qint64> &tombstones)

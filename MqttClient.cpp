@@ -157,19 +157,21 @@ void MqttClient::onDisconnected()
 {
     if (m_status != Status::Error)
         setStatus(Status::Disconnected);
-    emit disconnected();
 }
 
-void MqttClient::publish(const QString &topic, const QByteArray &payload)
+void MqttClient::publish(const QString &topic, const QByteArray &payload,
+                         bool retain)
 {
 #ifdef SMARTCLIP_HAVE_MQTT
     if (!m_client || m_client->state() != QMqttClient::Connected) {
         qWarning() << "MqttClient: publish без соединения";
         return;
     }
-    m_client->publish(QMqttTopicName(topic), payload, 0, false);
+    // QoS 1 (at-least-once) + optionally retain: клип не теряется при обрыве,
+    // а retained-состояние отдаётся новым подписчикам сразу при connect.
+    m_client->publish(QMqttTopicName(topic), payload, 1, retain);
 #else
-    Q_UNUSED(topic); Q_UNUSED(payload);
+    Q_UNUSED(topic); Q_UNUSED(payload); Q_UNUSED(retain);
 #endif
 }
 

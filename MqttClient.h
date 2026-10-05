@@ -24,7 +24,7 @@ public:
         Disconnected,  // настроен, но не подключён
         Connecting,
         Connected,
-        Error,         // ошибка соединения (текст — lastError())
+        Error,         // ошибка соединения (текст — в statusText())
     };
 
     explicit MqttClient(QObject *parent = nullptr);
@@ -37,21 +37,20 @@ public:
     void disconnectFromBroker();
     bool isConnected() const;
 
-    /** Публикация сырого payload (шифрование — на стороне SyncManager). */
-    void publish(const QString &topic, const QByteArray &payload);
+    /** Публикация сырого payload (шифрование — на стороне SyncManager).
+     *  QoS 1 (at-least-once). retain=true — брокер хранит последнее состояние
+     *  и отдаёт его новым подписчикам сразу при connect (догон гарантирован). */
+    void publish(const QString &topic, const QByteArray &payload,
+                 bool retain = false);
     /** Подписка на топик. Переподписка происходит автоматически при reconnect. */
     void subscribe(const QString &topic);
 
     static bool available();
 
-    Status status() const { return m_status; }
-    QString lastError() const { return m_lastError; }
-    /** Человекочитаемый статус (для UI/лога). */
     QString statusText() const;
 
 signals:
     void connected();
-    void disconnected();
     void messageReceived(const QString &topic, const QByteArray &payload);
     void errorOccurred(const QString &error);
     /** Статус изменился (для обновления индикатора в UI). */

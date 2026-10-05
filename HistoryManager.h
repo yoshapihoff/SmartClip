@@ -88,13 +88,6 @@ public:
     // чтобы удаление не «воскресало» при синке. Если запись с тем же текстом
     // будет скопирована снова, tombstone снимается (addToHistory).
     const QHash<QString, qint64> &tombstones() const { return m_tombstones; }
-    bool isDeleted(const QString &text) const { return m_tombstones.contains(text); }
-    qint64 tombstoneAtMs(const QString &text) const { return m_tombstones.value(text, 0); }
-    /** Пометить запись удалённой и убрать её из списка (tombstone создаётся). */
-    void removeItem(const QString &text, qint64 whenMs = 0);
-    /** Снять tombstone (запись снова считается живой). */
-    void resurrect(const QString &text);
-    void clearTombstones();
     /** Полная замена состояния (применение результата синка). */
     void setState(const QVector<HistoryItem> &items,
                   const QHash<QString, qint64> &tombstones);

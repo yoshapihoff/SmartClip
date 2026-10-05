@@ -77,6 +77,7 @@ private:
     QTimer *m_publishThrottle = nullptr;   // склейка частых publish
     QTimer *m_periodic = nullptr;          // периодический announce
     bool m_pendingPublish = false;
-    QByteArray m_lastPublished;            // plaintext последнего опубликованного стейта
+    QByteArray m_lastPublishedHash;        // SHA-256 последнего опубликованного plaintext
+                                           // (сравнение эха без хрупкого равенства JSON)
     int m_knownMasterHistorySize = 0;      // транслит History Size мастера (для 2-го хопа)
 };

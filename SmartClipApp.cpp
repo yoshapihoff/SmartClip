@@ -87,12 +87,7 @@ SmartClipApp::SmartClipApp(QObject *parent)
         settingsManager->setSecretKey(encKey);
     }
     settingsManager->loadSettings(settingsFilePath());
-    
-    // Connect to settings changes for auto-save
-    connect(settingsManager, &SettingsManager::settingsChanged, this, [this]() {
-        // Settings are automatically saved by SettingsManager now
-    });
-    
+
     // Apply launch at startup setting
     launchAgentManager->applyLaunchAtStartup(settingsManager->launchAtStartup());
     
@@ -252,8 +247,10 @@ void SmartClipApp::handleClipboardChange()
     }
 
     const QString text = clipboard->text(QClipboard::Clipboard);
-    qDebug() << "Clipboard changed: " << text;
-    
+    // НЕ логируем содержимое буфера: туда попадают пароли, и они утекали бы
+    // в journalctl/syslog открытым текстом. Логируем только факт и длину.
+    qDebug() << "Clipboard changed, length:" << text.size();
+
     if (ignoreNextClipboardChange) {
         ignoreNextClipboardChange = false;
         lastClipboardText = text;
@@ -374,9 +371,14 @@ bool SmartClipApp::promptComment(const QString &text, QString &out)
     lay->addWidget(box);
     dlg.setWindowFlag(Qt::WindowStaysOnTopHint, true);
 
-    // Режим одноразовый: гаснет при ЛЮБОМ закрытии окна («Окей»/«Отмена»).
+    // Одноразовый режим комментариев: гасим ТОЛЬКО его (clearModes() сбросил
+    // бы и другие включённые режимы, напр. «вскрытие паролей»).
     QObject::connect(&dlg, &QDialog::finished, this, [this](int) {
-        clearModes();
+        commentMode = false;
+        if (commentModeAction) {
+            QSignalBlocker b(commentModeAction);
+            commentModeAction->setChecked(false);
+        }
         rebuildMenu();
     });
 

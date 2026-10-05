@@ -65,7 +65,7 @@ private slots:
     void testFavTimestampsTransliterated();
 
     // ── HistoryManager (tombstones) ──
-    void testRemoveItemCreatesTombstone();
+    void testClearHistoryCreatesTombstones();
     void testAddToHistoryResurrects();
 
     // ── SettingsManager (сеть) ──
@@ -395,26 +395,37 @@ void TestSyncEngine::testFavTimestampsTransliterated()
     QCOMPARE(r.items.first().favChangedAtMs, qint64(250));
 }
 
-void TestSyncEngine::testRemoveItemCreatesTombstone()
+void TestSyncEngine::testClearHistoryCreatesTombstones()
 {
+    // Реальный путь очистки: clearHistory() удаляет ТОЛЬКО неизбранные и
+    // ставит на каждое tombstone (чтобы удаление доехало до других устройств).
     HistoryManager h;
-    h.addToHistory("hello");
-    h.addToHistory("world");
-    QVERIFY(!h.isDeleted("hello"));
-    h.removeItem("hello", 1000);
-    QVERIFY(h.isDeleted("hello"));
-    QCOMPARE(h.tombstoneAtMs("hello"), qint64(1000));
-    for (const auto &it : h.history())
-        QVERIFY(it.text != "hello");
+    h.addToHistory("keep");
+    h.addToHistory("drop");
+    h.toggleFavorite("keep");
+
+    h.clearHistory();
+
+    // Неизбранное исчезло и получило tombstone; избранное осталось.
+    QVERIFY(h.tombstones().contains("drop"));
+    QVERIFY(!h.tombstones().contains("keep"));
+    bool keepFound = false;
+    for (const auto &it : h.history()) {
+        if (it.text == "keep") keepFound = true;
+        QVERIFY(it.text != "drop");
+    }
+    QVERIFY(keepFound);
 }
 
 void TestSyncEngine::testAddToHistoryResurrects()
 {
+    // Повторное копирование снимает tombstone (иначе удаление на другом
+    // устройстве могло бы снова убить запись при синке).
     HistoryManager h;
-    h.removeItem("ghost", 1000);
-    QVERIFY(h.isDeleted("ghost"));
+    h.setState({}, { { "ghost", qint64(1000) } });
+    QVERIFY(h.tombstones().contains("ghost"));
     h.addToHistory("ghost");
-    QVERIFY(!h.isDeleted("ghost"));
+    QVERIFY(!h.tombstones().contains("ghost"));
 }
 
 void TestSyncEngine::testNetworkSettingsRoundTrip()

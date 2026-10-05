@@ -265,7 +265,7 @@ void SyncManager::stop()
     if (m_publishThrottle)
         m_publishThrottle->stop();
     m_pendingPublish = false;
-    m_lastPublished.clear();
+    m_lastPublishedHash.clear();
     if (m_client)
         m_client->disconnectFromBroker();
 }
@@ -334,8 +334,9 @@ void SyncManager::publishState()
     if (blob.isEmpty())
         return;
 
-    m_client->publish(topic(), blob.toBase64());
-    m_lastPublished = canonical;   // «что мы разослали» — чтобы не эхоить в ответ
+    m_client->publish(topic(), blob.toBase64(), true);
+    m_lastPublishedHash = QCryptographicHash::hash(canonical,
+                                                   QCryptographicHash::Sha256);
 }
 
 void SyncManager::onMessage(const QString &topicName, const QByteArray &payload)
@@ -402,9 +403,14 @@ void SyncManager::onMessage(const QString &topicName, const QByteArray &payload)
 
     // Разошлём объединённое состояние дальше, только если мы добавили что-то
     // новое относительно входящего пакета (иначе — лишний трафик).
-    // Сравнение по PLAINTEXT без id (GCM-нонс одноразовый, id инвариантен).
-    const QByteArray remoteRaw = stateToJson(remote);
-    if (mergedRaw != remoteRaw && mergedRaw != m_lastPublished) {
+    // Сравниваем ХЕШИ: точное сравнение JSON-строк хрупко (порядок ключей,
+    // формат чисел/float со временем может отличаться → ложные «изменения»
+    // и лишние публикации).
+    const QByteArray mergedHash = QCryptographicHash::hash(mergedRaw,
+                                                           QCryptographicHash::Sha256);
+    const QByteArray remoteHash = QCryptographicHash::hash(stateToJson(remote),
+                                                           QCryptographicHash::Sha256);
+    if (mergedHash != remoteHash && mergedHash != m_lastPublishedHash) {
         // ВАЖНО: ретрансляция должна сохранять СВОИ deviceId/role/hs, иначе
         // метаданные теряются на втором хопе и History Size мастера не доедет.
         const QString myRole = !m_settings->isMaster()
@@ -415,8 +421,8 @@ void SyncManager::onMessage(const QString &topicName, const QByteArray &payload)
                                               m_knownMasterHistorySize);
         const QByteArray blobOut = Crypto::encrypt(outRaw, key);
         if (!blobOut.isEmpty()) {
-            m_client->publish(topic(), blobOut.toBase64());
-            m_lastPublished = mergedRaw;
+            m_client->publish(topic(), blobOut.toBase64(), true);
+            m_lastPublishedHash = mergedHash;
         }
     }
 }

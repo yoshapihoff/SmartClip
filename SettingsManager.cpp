@@ -278,11 +278,18 @@ void SettingsManager::loadSettings(const QString &filePath)
         }
         {
             const QString v = firstMatch(t, QStringLiteral("sync_role"));
-            if (!v.isEmpty()) { setSyncRole(v); continue; }
+            if (!v.isEmpty()) {
+                // Присваиваем НАПРЯМУЮ, без setSyncRole(): тот вызывает
+                // saveCurrentSettings() → saveSettings(), который перезаписал
+                // бы файл, пока мы его ещё читаем (и sync_room ниже терялся).
+                m_syncRole = (v == QLatin1String("slave")) ? QStringLiteral("slave")
+                                                            : QStringLiteral("master");
+                continue;
+            }
         }
         {
             const QString v = firstMatch(t, QStringLiteral("sync_room"));
-            if (!v.isEmpty() && !v.isEmpty()) { m_syncRoom = v; continue; }
+            if (!v.isEmpty()) { m_syncRoom = v; continue; }
         }
     }
 }
@@ -313,6 +320,11 @@ void SettingsManager::saveSettings(const QString &filePath) const
     out << "sync_enc_password: " << encodeSecret(m_encPassword, m_secretKey) << "\n";
     out << "sync_role: " << m_syncRole << "\n";
     out << "sync_room: " << m_syncRoom << "\n";
+
+    // settings.yml содержит учётку брокера и общий пароль синка (при
+    // неработающем keyring — открытым base64). Закрываем права до владельца.
+    out.flush();
+    f.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
 }
 
 void SettingsManager::saveCurrentSettings()
