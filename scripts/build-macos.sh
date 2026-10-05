@@ -143,14 +143,13 @@ if [ "$DO_BUNDLE" -eq 1 ]; then
     INT="$(command -v install_name_tool || echo /usr/bin/install_name_tool)"
     [ -x "$INT" ] || die "install_name_tool не найден (нужен Xcode CLT)"
     log "Санитария rpath (убираю ссылки на исходный Qt)…"
-    # Удаляем ВСЕ LC_RPATH, ведущие на реальный префикс Qt
+    # У главного бинарника должен остаться ТОЛЬКО бандловый rpath. Удаляем
+    # все прочие (в т.ч. путь к исходному Qt, в т.ч. через симлинки).
     while IFS= read -r rp; do
-        case "$rp" in
-            *"$QT_PREFIX"*|*"$OPENSSL_PREFIX"*)
-                "$INT" -delete_rpath "$rp" "$EXE" 2>/dev/null || true
-                warn "удалён внешний rpath: $rp"
-                ;;
-        esac
+        if [ "$rp" != "@executable_path/../Frameworks" ]; then
+            "$INT" -delete_rpath "$rp" "$EXE" 2>/dev/null \
+                && warn "удалён внешний rpath: $rp" || true
+        fi
     done < <(otool -l "$EXE" | awk '/LC_RPATH/{f=1} f&&/path /{print $2; f=0}')
     # Гарантируем встроенный rpath
     otool -l "$EXE" | grep -q '@executable_path/../Frameworks' \
