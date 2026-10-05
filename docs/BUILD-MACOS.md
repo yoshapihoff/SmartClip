@@ -54,14 +54,19 @@ cd ~/projects/cpp/SmartClip          # или свой клон репы
 git switch develop
 git pull forgejo develop             # опционально: свежие доки
 
-cmake -S . -B build-macos -DCMAKE_BUILD_TYPE=Release
-cmake --build build-macos -j$(sysctl -n hw.ncpu)
+# Рекомендуется — скрипт сам найдёт Qt6/OpenSSL и подскажет зависимости:
+scripts/build-macos.sh
+
+# + упаковать Qt/OpenSSL внутрь .app (запуск без установленного Qt):
+scripts/build-macos.sh --bundle
 ```
 
-Либо через Makefile (сам определит платформу и создаст `build-macos`):
+Эквивалент вручную:
 
 ```bash
-make -C ~/projects/cpp/SmartClip macos-build
+cmake -S . -B build-macos -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_PREFIX_PATH="$(brew --prefix qt@6);$(brew --prefix openssl@3)"
+cmake --build build-macos -j$(sysctl -n hw.ncpu)
 ```
 
 При успешной конфигурации CMake выводит строку про MQTT:
@@ -91,14 +96,28 @@ cmake --build build-macos -j$(sysctl -n hw.ncpu)
 ## Шаг 2. Запустить приложение
 
 ```bash
-make -C ~/projects/cpp/SmartClip macos-run
-# или просто:
 open ~/projects/cpp/SmartClip/build-macos/SmartClip.app
+# или напрямую:
+~/projects/cpp/SmartClip/build-macos/SmartClip.app/Contents/MacOS/SmartClip
 ```
 
 Приложение живёт в трее (menu bar); иконка в Dock не отображается —
 это трей-приложение (`LSUIElement` в `Info.plist`). Дальше — клик по иконке в
 menu bar → **Settings**.
+
+### Зависимости для запуска
+
+| Что | Зачем | Установка |
+|-----|-------|-----------|
+| **Qt6** (Core/Gui/Widgets/Svg) | UI приложения | `brew install qt@6` — **или** собери с `--bundle`, тогда Qt внутри `.app` |
+| **OpenSSL 3** (libcrypto) | шифрование истории | `brew install openssl@3` — **или** тот же `--bundle` |
+| **Qt6 MQTT** | сетевая синхронизация | только если нужна синхронизация (Qt Online Installer) |
+| **macOS 12+** | система | — |
+| **Keychain** | ключ шифрования | встроено в macOS |
+
+> Если собирал через `scripts/build-macos.sh --bundle` — Qt и OpenSSL уже
+> внутри бандла, отдельно ставить их на других Mac не нужно (кроме сценария
+> с MQTT-синхронизацией — тогда нужен Qt6 MQTT).
 
 ### Установка в /Applications
 

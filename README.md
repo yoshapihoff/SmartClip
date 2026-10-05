@@ -42,72 +42,71 @@ sudo pacman -S qt6-base cmake
 brew install qt@6 cmake
 ```
 
-## Сборка
+## Сборка и установка
 
-> Пошаговые гайды (зависимости → сборка → установка → включение MQTT-синка):
-> **[Linux](docs/BUILD-LINUX.md)** · **[macOS](docs/BUILD-MACOS.md)**.
+Все сценарии — в каталоге **[`scripts/`](scripts/)**. Пошаговые гайды по
+зависимостям: **[Linux](docs/BUILD-LINUX.md)** · **[macOS](docs/BUILD-MACOS.md)**.
 
-### Быстрый старт (через Makefile)
+| Скрипт | Что делает |
+|--------|------------|
+| `scripts/build-linux.sh` | Сборка под Linux (+ `--install`) |
+| `scripts/install-linux.sh` | Сборка + установка из исходников (в `~/.local` или `/usr/local`) |
+| `scripts/uninstall-linux.sh` | Удаление установленного приложения |
+| `scripts/build-appimage.sh` | Портативный **AppImage** (Qt6/OpenSSL внутрь, без системного Qt) |
+| `scripts/build-macos.sh` | Сборка **SmartClip.app** на macOS (+ `--bundle`) |
+
+### Linux — AppImage (портативно, без системного Qt6)
 
 ```bash
-# Сборка (Qt6 определяется автоматически)
-make build
+scripts/build-appimage.sh            # скачает linuxdeploy/appimagetool и соберёт
+# → SmartClip-x86_64.AppImage   (Qt6/OpenSSL/MQTT/libsecret внутри)
+```
 
-# Сборка с ручным указанием Qt
+Требуется только `curl`, `file`, `patchelf`; инструменты упаковки скрипт
+скачивает сам в `~/.cache/smartclip-tools`. Приложение запускается на любом
+дистрибутиве без установки Qt.
+
+### Linux — из исходников
+
+```bash
+# Собрать + установить в ~/.local (без sudo):
+scripts/install-linux.sh
+
+# Системно:
+sudo scripts/install-linux.sh --prefix /usr/local
+
+# Только сборка:
+scripts/build-linux.sh
+```
+
+Ставится: бинарь → `<prefix>/bin/SmartClip`, ярлык → `share/applications/`,
+иконки → `share/icons/`. Удаление: `scripts/uninstall-linux.sh --prefix …`.
+
+Зависимости сборки — `qt6-base`, `openssl` (**обязательно**), `cmake`, компилятор;
+для синхронизации — `qt6-mqtt`; для ключа шифрования — `libsecret` (Linux).
+
+### macOS — сборка приложения
+
+```bash
+scripts/build-macos.sh            # → build-macos/SmartClip.app
+scripts/build-macos.sh --bundle   # + macdeployqt: Qt/OpenSSL внутрь .app
+```
+
+**Зависимости для сборки:** `brew install qt@6 cmake openssl@3`.
+**Для запуска** собранного приложения нужны Qt6 (Core/Gui/Widgets/Svg),
+OpenSSL 3 и, при использовании синхронизации, Qt6 MQTT (см.
+[docs/BUILD-MACOS.md](docs/BUILD-MACOS.md)). С `--bundle` Qt/OpenSSL кладутся
+внутрь `.app`, и отдельная установка Qt на машине не нужна.
+
+### Через Makefile (обёртки)
+
+```bash
+make build                 # сборка (Qt6 определяется автоматически)
 make build QT_PATH=/opt/Qt/6.7.0/gcc_64
-
-# Debug-сборка
 make build BUILD_TYPE=Debug
-```
-
-### Ручная сборка (CMake)
-
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-
-# При необходимости указать Qt:
-cmake -B build -DCMAKE_PREFIX_PATH=/path/to/Qt/6.x.x/gcc_64
-cmake --build build
-```
-
-## Установка
-
-### Linux
-
-```bash
-# Системная установка (требует sudo для /usr/local)
-sudo cmake --install build
-
-# Или через Makefile:
-sudo make install
-
-# Установка в пользовательскую директорию (без sudo):
-cmake -B build -DCMAKE_INSTALL_PREFIX=$HOME/.local
-cmake --build build
-cmake --install build
-```
-
-После установки приложение появится в меню приложений DE (категория «Утилиты»).
-
-### macOS
-
-```bash
-# Сборка создаёт .app bundle в build/SmartClip.app
-make build
-make run  # или: open build/SmartClip.app
-```
-
-## Запуск
-
-```bash
-# Linux
-make run
-# или: ./build/SmartClip
-
-# macOS
-make run
-# или: open build/SmartClip.app
+make install PREFIX=$HOME/.local   # или: sudo make install
+make appimage              # → AppImage
+make test                  # тесты (offscreen)
 ```
 
 ## Автостарт
@@ -297,7 +296,10 @@ master/slave: usage=max, LWW по меткам правки для mask/comment/
 ```
 .
 ├── CMakeLists.txt          # Основной CMake
-├── Makefile                # Удобные цели сборки/тестов/установки
+├── Makefile                # Удобные цели (обёртки над scripts/)
+├── scripts/                # Сборка/установка/упаковка (build-linux, install-linux,
+│                           #   uninstall-linux, build-appimage, build-macos, lib.sh)
+├── docs/                   # Гайды по сборке (BUILD-LINUX/MACOS)
 ├── assets/
 │   └── smartclip.desktop   # Linux: интеграция в DE
 ├── icons/                  # Иконки (.png, .svg, .icns)

@@ -252,19 +252,19 @@ test-verbose: build
 # Convenience: linux-specific targets
 # =========================
 
-.PHONY: linux linux-build linux-install linux-run linux-test linux-uninstall
+.PHONY: linux linux-build linux-install linux-run linux-test linux-uninstall appimage
 
 linux: linux-build
 
 linux-build:
 	@$(MAKE) build BUILD_DIR=build-linux
 
-appimage: linux-build
+appimage:
 	@echo "=== Building AppImage ==="
-	@./make-appimage.sh
+	@./scripts/build-appimage.sh
 
 linux-install:
-	@$(MAKE) install BUILD_DIR=build-linux
+	@./scripts/install-linux.sh --prefix $(PREFIX)
 
 linux-run:
 	@$(MAKE) run BUILD_DIR=build-linux
@@ -273,7 +273,7 @@ linux-test:
 	@$(MAKE) test BUILD_DIR=build-linux
 
 linux-uninstall:
-	@$(MAKE) uninstall BUILD_DIR=build-linux
+	@./scripts/uninstall-linux.sh --prefix $(PREFIX)
 
 # =========================
 # Convenience: macos-specific targets

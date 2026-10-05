@@ -57,18 +57,25 @@ pacman -Q qt6-mqtt qt6-base openssl libsecret
 ```bash
 cd ~/projects/cpp/SmartClip
 git switch develop          # если вдруг не на ней
-git pull forgejo develop    # подтянуть свежий README/доки (опционально)
+git pull forgejo develop    # подтянуть свежие доки (опционально)
 
+# Сборка + установка в ~/.local (без sudo):
+scripts/install-linux.sh
+
+# или системно:
+sudo scripts/install-linux.sh --prefix /usr/local
+
+# только собрать, без установки:
+scripts/build-linux.sh
+```
+
+Всё то же можно и напрямую через CMake:
+
+```bash
 cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX=$HOME/.local
 cmake --build build-linux -j$(nproc)
 cmake --install build-linux
-```
-
-Либо одной строкой через Makefile:
-
-```bash
-make -C ~/projects/cpp/SmartClip install PREFIX=$HOME/.local
 ```
 
 ⚠️ **При configure смотри на строку в конце** — должно быть:
@@ -80,13 +87,13 @@ make -C ~/projects/cpp/SmartClip install PREFIX=$HOME/.local
 Если написано `НЕ найден` — синка в бинаре не будет: ставь `qt6-mqtt` и
 пересобирай (`rm -rf build-linux`).
 
-> ⚠️ **Важно: указывай `CMAKE_INSTALL_PREFIX` ПРИ КАЖДОМ configure.**
-> Каталог сборки кэширует префикс. После обычного `make build` префикс может
-> перескочить на `/usr/local` (дефолт) — тогда `cmake --install` попытается
-> писать в `/usr/local` (потребует root), а в `~/.local/bin` останется **старый**
-> бинарь. Если в `PATH` есть и `/usr/local/bin`, запускаться будет именно он.
-> Проверка: `grep CMAKE_INSTALL_PREFIX build-linux/CMakeCache.txt` и
-> `md5sum build-linux/SmartClip ~/.local/bin/SmartClip` — хеши должны совпадать.
+> ⚠️ **При ручной сборке через `cmake` указывай `CMAKE_INSTALL_PREFIX`
+> ПРИ КАЖДОМ configure.** Каталог сборки кэширует префикс: после обычного
+> `make build` он может перескочить на `/usr/local` (дефолт), и тогда
+> `cmake --install` потребует root, а в `~/.local/bin` останется **старый**
+> бинарь. Проверка: `md5sum build-linux/SmartClip ~/.local/bin/SmartClip` —
+> хеши должны совпадать. **`scripts/install-linux.sh --prefix …` делает это
+> за тебя автоматически, так что при его использовании грабля не грозит.**
 
 Устанавливается:
 
@@ -99,12 +106,17 @@ make -C ~/projects/cpp/SmartClip install PREFIX=$HOME/.local
 (и связанные `smartclip.desktop`/иконки), затем перезапусти оболочку, чтобы
 сбросился кэш команд (`hash -r` в bash/zsh).
 
-*(Опционально)* portable-сборка **AppImage** (без системного Qt6):
+*(Опционально)* портативная сборка **AppImage** (без системного Qt6):
 
 ```bash
-make -C ~/projects/cpp/SmartClip appimage
-# → SmartClip-x86_64.AppImage
+scripts/build-appimage.sh
+# → SmartClip-x86_64.AppImage   (Qt6/OpenSSL/MQTT/libsecret внутри)
 ```
+
+Скрипт сам скачает `linuxdeploy`/`appimagetool` (в `~/.cache/smartclip-tools`),
+соберёт бинарник, уложит Qt6/OpenSSL и соберёт образ. Запускается на любом
+дистрибутиве без установки Qt. Проверка без дисплея:
+`QT_QPA_PLATFORM=offscreen ./SmartClip-x86_64.AppImage`.
 
 ---
 
@@ -205,13 +217,13 @@ mosquitto_sub -h mqtt.halfpi.ru -p 8883 --cafile /etc/ssl/certs/ca-certificates.
 
 ```bash
 cd ~/projects/cpp/SmartClip && git pull forgejo develop
-make install PREFIX=$HOME/.local
+scripts/install-linux.sh                    # → ~/.local
 ```
 
 Удаление:
 
 ```bash
-make -C ~/projects/cpp/SmartClip uninstall PREFIX=$HOME/.local
+scripts/uninstall-linux.sh --prefix $HOME/.local
 ```
 
 ---
