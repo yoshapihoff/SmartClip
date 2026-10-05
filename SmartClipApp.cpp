@@ -569,10 +569,12 @@ void SmartClipApp::rebuildMenu()
         // переключает маску: показать пароль / снова скрыть (см. обработчик).
         const bool maskThis = history.at(i).maskInMenu;
         QString baseText = maskThis ? maskForMenuDisplay(text) : text;
-        // Комментарий показываем в скобках после текста (режим «Комментарии»).
+        // Комментарий показываем после текста через тире (русское «тире»),
+        // а не в скобках. Форматировать курсивом пункты меню нельзя ни на одной
+        // из платформ (меню трея — нативные/DBus, только plain label).
         const QString cmt = history.at(i).comment;
         if (!cmt.isEmpty())
-            baseText += QStringLiteral("  (") + cmt + QStringLiteral(")");
+            baseText += QStringLiteral(" \u2014 ") + cmt;
         QAction *action = trayMenu.addAction(formatMenuLabel(baseText));
 
         // Показываем иконку избранного если элемент в избранном.

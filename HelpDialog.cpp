@@ -131,8 +131,8 @@ void HelpDialog::setupUI()
         "Turn on <b>Comments</b> in the menu, then <b>left-click</b> an item. A small "
         "window opens with a text field (pre-filled with the existing note, if any). "
         "Type a note and press <b>OK</b> to save it, or <b>Cancel</b> to discard. Either "
-        "way the mode turns off and the comment appears in parentheses right after the "
-        "item text.",
+        "way the mode turns off and the comment appears right after the item text, "
+        "separated by an em dash (\u2014 note).",
         this
     );
     cmtText->setWordWrap(true);
