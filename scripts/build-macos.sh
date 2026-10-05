@@ -67,6 +67,15 @@ try_qt() {
 
 QT_CANDS=()
 [ -n "${QT_PATH:-}" ] && QT_CANDS+=("$QT_PATH")
+# Повторная сборка: берём Qt из прошлой конфигурации (там может быть Qt6::Mqtt
+# из Online Installer, которого нет в brew).
+if [ -f "$BUILD_DIR/CMakeCache.txt" ]; then
+    cached="$(sed -n 's/^Qt6_DIR:PATH=//p' "$BUILD_DIR/CMakeCache.txt" | head -1)"
+    # Qt6_DIR = <prefix>/lib/cmake/Qt6 → поднимаемся на 3 уровня до prefix
+    if [ -n "$cached" ] && [ -f "$cached/Qt6Config.cmake" ]; then
+        QT_CANDS+=("$(cd "$(dirname "$(dirname "$(dirname "$cached")")")" && pwd)")
+    fi
+fi
 # Приоритет — brew (по докам ставим qt@6), ЗАТЕМ qmake6: на macOS в PATH может
 # оказаться чужой qmake6 (напр. из conda) и увести на префикс без cmake/Qt6.
 if command -v brew >/dev/null 2>&1; then
@@ -118,13 +127,60 @@ APP="$BUILD_DIR/$APP_NAME.app"
 [ -d "$APP" ] || die "не найден бандл $APP"
 
 if [ "$DO_BUNDLE" -eq 1 ]; then
+    # macOS-приложение: без Qt внутри бандла запускается только там, где есть
+    # Qt в PATH. macdeployqt НЕ всегда чинит rpath → после него САНИРУЕМ.
     MACDEPLOYQT="$QT_PREFIX/bin/macdeployqt"
-    [ -x "$MACDEPLOYQT" ] || command -v macdeployqt >/dev/null || \
-        die "macdeployqt не найден (нужен для --bundle)"
-    : "${MACDEPLOYQT:=$(command -v macdeployqt)}"
+    [ -x "$MACDEPLOYQT" ] || die "macdeployqt не найден в $QT_PREFIX/bin (нужен для --bundle)"
     log "Упаковка Qt/OpenSSL внутрь .app (macdeployqt)…"
     "$MACDEPLOYQT" "$APP" -always-overwrite \
         -executable="$APP/Contents/MacOS/$APP_NAME"
+
+    # ── Санитария rpath ───────────────────────────────────────────────
+    # Главный бинарник мог получить rpath на ИСХОДНЫЙ Qt — тогда при запуске
+    # грузятся ДВЕ копии QtCore и плагин cocoa падает. Прибиваем внешние пути,
+    # гарантируем @executable_path/../Frameworks.
+    EXE="$APP/Contents/MacOS/$APP_NAME"
+    INT="$(command -v install_name_tool || echo /usr/bin/install_name_tool)"
+    [ -x "$INT" ] || die "install_name_tool не найден (нужен Xcode CLT)"
+    log "Санитария rpath (убираю ссылки на исходный Qt)…"
+    # Удаляем ВСЕ LC_RPATH, ведущие на реальный префикс Qt
+    while IFS= read -r rp; do
+        case "$rp" in
+            *"$QT_PREFIX"*|*"$OPENSSL_PREFIX"*)
+                "$INT" -delete_rpath "$rp" "$EXE" 2>/dev/null || true
+                warn "удалён внешний rpath: $rp"
+                ;;
+        esac
+    done < <(otool -l "$EXE" | awk '/LC_RPATH/{f=1} f&&/path /{print $2; f=0}')
+    # Гарантируем встроенный rpath
+    otool -l "$EXE" | grep -q '@executable_path/../Frameworks' \
+        || "$INT" -add_rpath "@executable_path/../Frameworks" "$EXE"
+    # Переподписываем ad-hoc (arm64 иначе откажется запускать изменённый
+    # бинарник; install_name_tool ломает подпись).
+    if command -v codesign >/dev/null 2>&1; then
+        codesign --force --deep --sign - "$APP" 2>/dev/null \
+            || codesign --force --sign - "$EXE" 2>/dev/null || true
+    fi
+fi
+
+# ── Проверка самодостаточности ──────────────────────────────────────────
+if [ "$DO_BUNDLE" -eq 1 ]; then
+    log "Проверка бандла…"
+    bad=0
+    for f in "$APP/Contents/MacOS/$APP_NAME" "$APP"/Contents/PlugIns/platforms/*.dylib; do
+        [ -f "$f" ] || continue
+        ext="$(otool -L "$f" | grep -Eo '/Volumes/[^ ]*/Qt[^ ]*|/[^ ]*/6\.[0-9.]+/[a-z_]+/lib/Qt[^ ]*' || true)"
+        if [ -n "$ext" ]; then
+            warn "$(basename "$f") всё ещё линкует внешний Qt:"
+            echo "$ext" | sed 's/^/    /' >&2
+            bad=1
+        fi
+    done
+    if [ "$bad" -eq 0 ]; then
+        log "OK: бандл самодостаточен (внешних Qt-ссылок нет)."
+    else
+        warn "Бандл не самодостаточен — на машине без этого Qt запуск упадёт."
+    fi
 fi
 
 echo

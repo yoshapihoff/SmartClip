@@ -80,6 +80,11 @@ if(APPLE)
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.example.smartclip"
         MACOSX_BUNDLE_BUNDLE_NAME "SmartClip"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/Info.plist"
+        # При установке/упаковке Qt ищется внутри бандла. Build-tree rpath НЕ
+        # трогаем — чтобы неупакованный .app запускался против системного Qt.
+        # Окончательная починка rpath для --bundle — в scripts/build-macos.sh
+        # (санитария после macdeployqt).
+        INSTALL_RPATH "@executable_path/../Frameworks"
     )
 elseif(UNIX AND NOT APPLE)
     # ── Linux install rules ──
