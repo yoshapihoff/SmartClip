@@ -16,7 +16,7 @@
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
 # Зависимости сборки
-brew install qt@6 cmake
+brew install qt@6 cmake openssl@3
 ```
 
 Что зачем:
@@ -24,6 +24,7 @@ brew install qt@6 cmake
 | Пакет | Зачем |
 |-------|-------|
 | `qt@6` | Qt Widgets + Qt Svg — UI приложения (**обязательно**) |
+| `openssl@3` | AES-256-GCM для шифрования истории (**обязательно**, fail-closed) |
 | `cmake` | Система сборки |
 
 Нужен ли на macOS `qt6-mqtt`? **Нет.** Метаформула Homebrew `qt` (`qt@6`)
@@ -36,9 +37,12 @@ brew install qt@6 cmake
 бинарник собирается и полностью работает — просто сетевой синхронизации в нём
 не будет (см. ниже, как её включить через Qt Online Installer).
 
-Дополнительно на macOS задействованы системные средства, ставить ничего не надо:
+Дополнительно на macOS задействованы системные средства:
 
-- **OpenSSL-совместимый AES-256-GCM** — встроенный Apple CommonCrypto;
+- **OpenSSL** (`openssl@3` через Homebrew) — AES-256-GCM для шифрования
+  истории и секретов. Это **обязательная зависимость**: без неё сборка
+  падает с ошибкой, потому что история буфера обмена обязана храниться
+  зашифрованной;
 - **Keychain** — для ключа шифрования истории (утилита `security`).
 
 ---
@@ -245,7 +249,7 @@ cmake --install build        # в тот же префикс Qt (может по
 - **Автостарт:** LaunchAgent
   `~/Library/LaunchAgents/com.yoshapihoff.smartclip.plist` (включается через
   Settings → «Launch at startup»).
-- **Ключ шифрования** — в Keychain; AES — через системный CommonCrypto.
+- **Ключ шифрования** — в Keychain; AES-256-GCM — через OpenSSL (`openssl@3`).
 - **Тема иконки** (светлая/тёмная) определяется автоматически.
 - **Ctrl+клик по элементу** закрепляет его в избранном (быстрый путь).
 

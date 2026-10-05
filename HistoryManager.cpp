@@ -113,7 +113,10 @@ void HistoryManager::trimToMaxItems()
 
 namespace {
 
-/** Расшифровать значение поля (v2:...) или декодировать открытый base64. */
+/** Расшифровать значение поля (v2:<base64>). Для ОТКРЫТОГО (legacy) формата
+ *  декодируем только ради разовой миграции: такие значения помечаются
+ *  wasPlain=true, и при первом сохранении файл целиком становится шифрованным.
+ *  Записи в открытом виде в файл больше НЕ происходит. */
 QString decodeField(const QString &val, const QByteArray &key, bool *wasPlain)
 {
     if (wasPlain)
@@ -124,6 +127,8 @@ QString decodeField(const QString &val, const QByteArray &key, bool *wasPlain)
         const QByteArray plain = Crypto::decrypt(blob, key, &ok);
         return ok ? QString::fromUtf8(plain) : QString();
     }
+    // Legacy-открытый формат: декодируем ТОЛЬКО чтобы перешифровать при
+    // ближайшем сохранении (иначе данные были бы потеряны при апгрейде).
     if (wasPlain)
         *wasPlain = true;
     return QString::fromUtf8(QByteArray::fromBase64(val.toUtf8()));
@@ -142,8 +147,15 @@ bool splitKeyValue(const QString &line, QString &key, QString &val)
 
 }  // namespace
 
+// ────────────────────────────── загрузка ──────────────────────────────
+
 bool HistoryManager::loadHistory(const QString &filePath)
 {
+    // ЖЁСТКОЕ условие: без ключа (или без крипто-бэкенда) историю не грузим
+    // вообще — чтобы открытые данные не оказались в памяти и на экране.
+    if (!encryptionEnabled() || !Crypto::available())
+        return false;
+
     QFile f(filePath);
     if (!f.exists()) {
         return false;
@@ -315,9 +327,10 @@ bool HistoryManager::loadHistory(const QString &filePath)
     m_tombstones = loadedTombstones;
     sortHistory(); // Сортируем после загрузки
     trimToMaxItems();
-    // Миграция: файл был в открытом виде и есть ключ → перезапишем шифром.
-    // Без ключа открытый формат остаётся как есть (мигрировать некуда).
-    m_dirty = migrate && encryptionEnabled();
+    // Файл содержал ОТКРЫТЫЕ данные (миграция со старого формата): держим
+    // dirty=true, чтобы при первом же сохранении он стал полностью
+    // зашифрованным. Сами открытые значения при чтении уже отброшены.
+    m_dirty = migrate;
     return m_dirty;
 }
 
@@ -331,64 +344,80 @@ void HistoryManager::loadHistory(const QString &filePath, int maxItemsForTrim)
 
 void HistoryManager::saveHistory(const QString &filePath) const
 {
+    // ЖЁСТКОЕ условие: без ключа/без крипто-бэкенда НИЧЕГО не пишем на диск.
+    // История буфера обмена обязана лежать только зашифрованной — не
+    // допускаем ни открытого, ни пустого файла как «резервной копии».
+    if (!encryptionEnabled() || !Crypto::available())
+        return;
+    if (m_history.isEmpty() && m_tombstones.isEmpty()
+        && !QFile::exists(filePath))
+        return;   // нечего писать — не создаём пустой файл
+
     const QFileInfo fi(filePath);
     if (!fi.dir().exists()) {
         QDir().mkpath(fi.dir().absolutePath());
     }
 
-    QFile f(filePath);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
-        return;
-    }
-
-    const bool enc = encryptionEnabled() && Crypto::available();
+    // Собираем содержимое В ПАМЯТИ и шифруем каждое поле; если хоть одно
+    // поле не удалось зашифровать — отменяем сохранение целиком, чтобы не
+    // оставить на диске частично открытый файл.
     auto encodeField = [&](const QString &plain) -> QString {
-        if (enc) {
-            const QByteArray blob = Crypto::encrypt(plain.toUtf8(), m_key);
-            return QLatin1String("v2:") + QString::fromLatin1(blob.toBase64());
-        }
-        return QString::fromLatin1(plain.toUtf8().toBase64());
+        const QByteArray blob = Crypto::encrypt(plain.toUtf8(), m_key);
+        if (blob.isEmpty())
+            return QString();   // сигнал ошибки → отмена записи
+        return QLatin1String("v2:") + QString::fromLatin1(blob.toBase64());
     };
 
-    QTextStream out(&f);
-    out << "version: " << (enc ? 3 : 1) << "\n";
-    out << "items:\n";
+    QString content;
+    content += QLatin1String("version: 3\n");
+    content += QLatin1String("items:\n");
+    bool ok = true;
     for (const HistoryItem &item : m_history) {
-        out << "  - text_b64: " << encodeField(item.text) << "\n";
-        out << "    usage_count: " << item.usageCount << "\n";
-        out << "    added_at_ms: " << item.addedAtMs << "\n";
-        out << "    favorite_color_index: " << item.favoriteColorIndex << "\n";
-        out << "    mask_in_menu: " << (item.maskInMenu ? "1" : "0") << "\n";
-        // Метки правок — только если поле реально менялось (иначе строка не пишется,
-        // отсутствие поля при загрузке читается как 0 → легаси-правило ведущего).
-        if (item.favChangedAtMs > 0) {
-            out << "    fav_changed_at_ms: " << item.favChangedAtMs << "\n";
-        }
-        if (item.maskChangedAtMs > 0) {
-            out << "    mask_changed_at_ms: " << item.maskChangedAtMs << "\n";
-        }
-        if (item.commentChangedAtMs > 0) {
-            out << "    comment_changed_at_ms: " << item.commentChangedAtMs << "\n";
-        }
+        const QString encText = encodeField(item.text);
+        if (encText.isEmpty()) { ok = false; break; }
+        content += QLatin1String("  - text_b64: ") + encText + QLatin1Char('\n');
+        content += QLatin1String("    usage_count: ") + QString::number(item.usageCount) + QLatin1Char('\n');
+        content += QLatin1String("    added_at_ms: ") + QString::number(item.addedAtMs) + QLatin1Char('\n');
+        content += QLatin1String("    favorite_color_index: ") + QString::number(item.favoriteColorIndex) + QLatin1Char('\n');
+        content += QLatin1String("    mask_in_menu: ") + (item.maskInMenu ? QLatin1String("1") : QLatin1String("0")) + QLatin1Char('\n');
+        // Метки правок — только если поле реально менялось (отсутствие = 0).
+        if (item.favChangedAtMs > 0)
+            content += QLatin1String("    fav_changed_at_ms: ") + QString::number(item.favChangedAtMs) + QLatin1Char('\n');
+        if (item.maskChangedAtMs > 0)
+            content += QLatin1String("    mask_changed_at_ms: ") + QString::number(item.maskChangedAtMs) + QLatin1Char('\n');
+        if (item.commentChangedAtMs > 0)
+            content += QLatin1String("    comment_changed_at_ms: ") + QString::number(item.commentChangedAtMs) + QLatin1Char('\n');
         if (!item.comment.isEmpty()) {
-            out << "    comment_b64: " << encodeField(item.comment) << "\n";
+            const QString encCmt = encodeField(item.comment);
+            if (encCmt.isEmpty()) { ok = false; break; }
+            content += QLatin1String("    comment_b64: ") + encCmt + QLatin1Char('\n');
         }
     }
 
-    if (!m_tombstones.isEmpty()) {
-        out << "deleted:\n";
+    if (ok && !m_tombstones.isEmpty()) {
+        content += QLatin1String("deleted:\n");
         for (auto it = m_tombstones.constBegin(); it != m_tombstones.constEnd(); ++it) {
             if (it.key().isEmpty())
                 continue;
-            out << "  - text_b64: " << encodeField(it.key()) << "\n";
-            out << "    deleted_at_ms: " << it.value() << "\n";
+            const QString encKey = encodeField(it.key());
+            if (encKey.isEmpty()) { ok = false; break; }
+            content += QLatin1String("  - text_b64: ") + encKey + QLatin1Char('\n');
+            content += QLatin1String("    deleted_at_ms: ") + QString::number(it.value()) + QLatin1Char('\n');
         }
     }
 
-    // Файл содержит историю буфера (при неработающем keyring — открытым
-    // текстом). Закрываем права до владельца (0600), иначе при умолчании
-    // 0644 файл читаем другими пользователями системы.
-    out.flush();
+    if (!ok)
+        return;   // хоть одно поле не зашифровалось — НЕ пишем файл вовсе
+
+    QFile f(filePath);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
+        return;
+    {
+        QTextStream out(&f);
+        out << content;
+    }
+    // Файл содержит историю буфера (зашифрованную). Закрываем права до
+    // владельца (0600), иначе при умолчании 0644 файл читаем другими юзерами.
     f.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
 }
 

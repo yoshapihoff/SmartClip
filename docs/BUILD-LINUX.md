@@ -42,7 +42,7 @@ pacman -Q qt6-mqtt qt6-base openssl libsecret
 | `qt6-mqtt` | Qt MQTT — **только для** сетевой синхронизации (опционально) |
 | `cmake` | Система сборки |
 | `gcc` | Компилятор C++17 |
-| `openssl` | AES-256-GCM (шифрование истории) |
+| `openssl` | AES-256-GCM (шифрование истории) — **обязательно** (fail-closed) |
 | `libsecret` | Хранилище ключа шифрования (Secret Service, gnome-keyring / KWallet) |
 
 > **`qt6-mqtt` не обязателен.** Без него приложение собирается и работает —

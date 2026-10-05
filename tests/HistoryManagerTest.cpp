@@ -38,6 +38,7 @@ private slots:
     void testMaskInMenu();
     void testEncryptedRoundTrip();
     void testMigrationFromPlaintext();
+    void testNoKeyNoPlaintextFile();
     void testCommentPersistence();
     void testChangeTimestamps();
 
@@ -99,6 +100,10 @@ void TestHistoryManager::testCommentPersistence()
 }
 void TestHistoryManager::testChangeTimestamps()
 {
+    if (!Crypto::available())
+        QSKIP("OpenSSL недоступен — сохранить историю нельзя (строгое шифрование)");
+    const QByteArray key = Crypto::randomBytes(32);
+    m_historyManager->setEncryptionKey(key);
     m_historyManager->addToHistory("clip");
     // Новый элемент: поля никто не менял → метки 0 (легаси-правило ведущего).
     QCOMPARE(m_historyManager->history().first().favChangedAtMs, qint64(0));
@@ -119,7 +124,9 @@ void TestHistoryManager::testChangeTimestamps()
     // Метки переживают save/load (иначе LWW теряет знание о правках).
     m_historyManager->saveHistory(m_testFilePath);
     HistoryManager hm;
-    hm.loadHistory(m_testFilePath);
+    hm.setEncryptionKey(key);   // без ключа история не грузится (строгое шифрование)
+    hm.loadHistory(m_testFilePath);   // encrypted → возвращает false (миграция не нужна)
+    QCOMPARE(hm.history().size(), 1);
     QCOMPARE(hm.history().first().favChangedAtMs,
              m_historyManager->history().first().favChangedAtMs);
     QVERIFY(hm.history().first().maskChangedAtMs > 0);
@@ -130,17 +137,20 @@ void TestHistoryManager::testMigrationFromPlaintext()
 {
     if (!Crypto::available())
         QSKIP("OpenSSL недоступен");
-    // 1) пишем ОТКРЫТЫЙ файл (старый формат)
-    m_historyManager->addToHistory("secret-pass");
-    m_historyManager->saveHistory(m_testFilePath);
+    // 1) Кладём СТАРЫЙ ОТКРЫТЫЙ файл (legacy-формат, без префикса v2:).
     {
         QFile f(m_testFilePath);
-        QVERIFY(f.open(QIODevice::ReadOnly));
-        const QByteArray raw = f.readAll();
-        QVERIFY(raw.contains("text_b64"));
-        QVERIFY(!raw.contains("v2:"));   // ещё открыто
+        QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream out(&f);
+        out << "version: 1\n";
+        out << "items:\n";
+        out << "  - text_b64: " << QString::fromLatin1(QByteArray("secret-pass").toBase64()) << "\n";
+        out << "    usage_count: 0\n";
+        out << "    added_at_ms: 123\n";
+        out << "    favorite_color_index: -1\n";
+        out << "    mask_in_menu: 0\n";
     }
-    // 2) с ключом: загрузка помечает файл как подлежащий миграции
+    // 2) С ключом: загрузка декодирует открытые значения и помечает миграцию.
     const QByteArray key = Crypto::randomBytes(32);
     HistoryManager hm2;
     hm2.setEncryptionKey(key);
@@ -168,6 +178,24 @@ void TestHistoryManager::testMigrationFromPlaintext()
     hm4.loadHistory(m_testFilePath);
     for (const auto &it : hm4.history())
         QVERIFY(it.text.isEmpty());
+}
+
+// Строгое шифрование: БЕЗ ключа история НЕ пишется на диск вообще
+// (fail-closed), и НЕ читается.
+void TestHistoryManager::testNoKeyNoPlaintextFile()
+{
+    if (!Crypto::available())
+        QSKIP("OpenSSL недоступен");
+    m_historyManager->addToHistory("top-secret");
+    // Ключ НЕ задаём.
+    m_historyManager->saveHistory(m_testFilePath);
+    QVERIFY2(!QFile::exists(m_testFilePath),
+             "без ключа файл истории не должен создаваться");
+
+    // И чтение без ключа ничего не загружает.
+    HistoryManager hm;
+    QVERIFY(!hm.loadHistory(m_testFilePath));
+    QCOMPARE(hm.history().size(), 0);
 }
 
 void TestHistoryManager::init()
@@ -433,6 +461,9 @@ void TestHistoryManager::testSortHistory()
 
 void TestHistoryManager::testLoadSaveHistory()
 {
+    if (!Crypto::available())
+        QSKIP("OpenSSL недоступен — сохранить историю нельзя (строгое шифрование)");
+    m_historyManager->setEncryptionKey(Crypto::randomBytes(32));
     // Create test data
     m_historyManager->addToHistory("item1");
     m_historyManager->addToHistory("item2");
@@ -471,6 +502,9 @@ void TestHistoryManager::testLoadSaveHistory()
 
 void TestHistoryManager::testLoadSaveHistory_maskInMenu()
 {
+    if (!Crypto::available())
+        QSKIP("OpenSSL недоступен — сохранить историю нельзя (строгое шифрование)");
+    m_historyManager->setEncryptionKey(Crypto::randomBytes(32));
     m_historyManager->addToHistory("item1");
     m_historyManager->addToHistory("item2");
     m_historyManager->setMaskInMenu("item1", true);
@@ -501,6 +535,9 @@ void TestHistoryManager::testLoadSaveHistory_maskInMenu()
 
 void TestHistoryManager::testLoadSaveHistory_favoriteColorIndex()
 {
+    if (!Crypto::available())
+        QSKIP("OpenSSL недоступен — сохранить историю нельзя (строгое шифрование)");
+    m_historyManager->setEncryptionKey(Crypto::randomBytes(32));
     m_historyManager->addToHistory("fav_red");
     m_historyManager->addToHistory("fav_green");
     m_historyManager->addToHistory("normal");

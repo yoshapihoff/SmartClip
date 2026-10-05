@@ -80,9 +80,15 @@ SmartClipApp::SmartClipApp(QObject *parent)
     // Load settings
     // Ключ шифрования нужен РАНЬШЕ загрузки настроек: им расшифровываются
     // пароли брокера и общий пароль синка в settings.yml.
-    const QByteArray encKey =
-        Crypto::loadOrCreateKey(QStringLiteral("SmartClip"),
-                                QStringLiteral("history-aes-key"));
+    //
+    // Шифрование истории — СТРОГОЕ условие: если крипто-бэкенд (OpenSSL)
+    // или системное хранилище ключа недоступны, приложение не должно ни
+    // писать, ни читать историю открытым текстом (fail-closed).
+    const bool cryptoOk = Crypto::init();
+    QByteArray encKey;
+    if (cryptoOk)
+        encKey = Crypto::loadOrCreateKey(QStringLiteral("SmartClip"),
+                                         QStringLiteral("history-aes-key"));
     if (encKey.size() == 32) {
         settingsManager->setSecretKey(encKey);
     }
@@ -100,14 +106,22 @@ SmartClipApp::SmartClipApp(QObject *parent)
         qInfo() << "SmartClip: шифрование истории ВКЛ ("
                 << Crypto::keyringBackend() << ")";
     } else {
-        qWarning() << "SmartClip: хранилище ключей недоступно — "
-                      "история будет в открытом виде";
+        // Fail-closed: без ключа история не пишется и не читается (см.
+        // HistoryManager::save/loadHistory). Открытым текстом — никогда.
+        qWarning() << "SmartClip: ключ шифрования недоступен — история буфера "
+                      "НЕ сохраняется (шифрование строго обязательно).";
     }
 
     if (settingsManager->saveHistoryOnExit()) {
         historyManager->setMaxItems(settingsManager->maxItems());
+        // Fail-closed: история есть на диске, но ключа нет — НЕ читаем и НЕ
+        // перезаписываем (нельзя ни открыть, ни потерять). Громко сообщаем.
+        if (encKey.size() != 32 && QFile::exists(historyFilePath())) {
+            qWarning() << "SmartClip: история на диске есть, но ключ недоступен — "
+                          "файл не читается и не перезаписывается.";
+        }
         // loadHistory вернёт true, если файл был в старом ОТКРЫТОМ формате —
-        // тогда ниже перезапишем его шифрованным (миграция).
+        // тогда перезапишем его шифрованным (разумая миграция).
         const bool migrated = historyManager->loadHistory(historyFilePath());
         // Восстанавливаем закреплённые цвета избранного из загруженной истории
         favoriteItemColors.clear();

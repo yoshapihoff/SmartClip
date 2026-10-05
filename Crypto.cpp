@@ -2,7 +2,6 @@
 
 #include <QProcess>
 #include <QByteArray>
-#include <QRandomGenerator>
 #include <QDebug>
 #include <cstring>
 
@@ -49,13 +48,26 @@ QByteArray randomBytes(int n)
     if (n <= 0)
         return out;
 #if defined(SMARTCLIP_HAVE_OPENSSL)
-    if (RAND_bytes(reinterpret_cast<unsigned char *>(out.data()), n) == 1)
-        return out;
-#endif
-    // фолбэк — Qt-генератор (хуже, но лучше чем ничего)
-    for (int i = 0; i < n; ++i)
-        out[i] = static_cast<char>(QRandomGenerator::global()->generate() & 0xff);
+    // Единственный источник: CSPRNG OpenSSL. Фолбэка НЕТ намеренно: иначе
+    // при сбое энтропии можно было бы сгенерировать предсказуемый ключ и
+    // сломать шифрование, оставаясь в неведении. Возврат пустого → вызов
+    // обрабатывает ошибку как «шифрование недоступно».
+    if (RAND_bytes(reinterpret_cast<unsigned char *>(out.data()), n) != 1)
+        return {};
     return out;
+#else
+    return {};
+#endif
+}
+
+bool init()
+{
+#if defined(SMARTCLIP_HAVE_OPENSSL)
+    // Просто проверяем, что EVP доступен (внешняя зависимость OpenSSL).
+    return EVP_get_digestbyname("sha256") != nullptr;
+#else
+    return false;
+#endif
 }
 
 QByteArray deriveKey(const QString &password, const QByteArray &salt,
@@ -220,6 +232,8 @@ QByteArray loadKey(const QString &service, const QString &account)
 bool storeKey(const QString &service, const QString &account,
               const QByteArray &key)
 {
+    if (key.size() != kKeyLen)
+        return false;   // не сохраняем пустой/битый ключ
     const QByteArray b64 = key.toBase64();
 #if defined(Q_OS_MAC)
     const QString pw = QString::fromLatin1(b64);
@@ -252,6 +266,10 @@ QByteArray loadOrCreateKey(const QString &service, const QString &account)
     if (key.size() == kKeyLen)
         return key;
     key = randomBytes(kKeyLen);
+    if (key.size() != kKeyLen) {
+        qWarning() << "SmartClip: генератор ключей недоступен (нет CSPRNG)";
+        return {};
+    }
     if (!storeKey(service, account, key)) {
         qWarning() << "SmartClip: не удалось сохранить ключ шифрования в"
                    << keyringBackend();

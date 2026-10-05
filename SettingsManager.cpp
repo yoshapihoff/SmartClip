@@ -8,21 +8,26 @@
 
 namespace {
 
-// Пароли в settings.yml не пишем открыто: шифруем AES-256-GCM ключом из
-// системного хранилища (тот же keyring, что и история). Формат значения:
-//   v2:<base64(nonce||ct||tag)>  — зашифровано
-//   p:<base64(utf8)>             — открыто (ключ недоступен)
+// Пароли в settings.yml НЕ пишем открыто: шифруем AES-256-GCM ключом из
+// системного хранилища (тот же keyring, что и история). Формат:
+//   v2:<base64(nonce||ct||tag)>  — зашифровано (единственный формат записи)
+//   p:<base64(utf8)>            — legacy-открытое (ТОЛЬКО чтение, для миграции)
 QString encodeSecret(const QString &plain, const QByteArray &key)
 {
     if (plain.isEmpty())
         return QString();
-    if (key.size() == 32 && Crypto::available()) {
-        const QByteArray blob = Crypto::encrypt(plain.toUtf8(), key);
-        if (!blob.isEmpty())
-            return QLatin1String("v2:") + QString::fromLatin1(blob.toBase64());
+    // Зашифровать ОБЯЗАТЕЛЬНО. Если ключа/бэкенда нет — НЕ сохраняем секрет
+    // вовсе (fail-closed), вместо записи открытым текстом.
+    if (key.size() != 32 || !Crypto::available()) {
+        qWarning() << "SmartClip: нет ключа шифрования — секрет не сохраняется";
+        return QString();
     }
-    return QLatin1String("p:")
-           + QString::fromLatin1(plain.toUtf8().toBase64());
+    const QByteArray blob = Crypto::encrypt(plain.toUtf8(), key);
+    if (blob.isEmpty()) {
+        qWarning() << "SmartClip: не удалось зашифровать секрет — не сохраняется";
+        return QString();
+    }
+    return QLatin1String("v2:") + QString::fromLatin1(blob.toBase64());
 }
 
 QString decodeSecret(const QString &val, const QByteArray &key)
@@ -33,9 +38,10 @@ QString decodeSecret(const QString &val, const QByteArray &key)
         const QByteArray plain = Crypto::decrypt(blob, key, &ok);
         return ok ? QString::fromUtf8(plain) : QString();
     }
+    // Legacy/открытое — читаем только для миграции (при первом сохранении
+    // перезапишется шифром через encodeSecret).
     if (val.startsWith(QLatin1String("p:")))
         return QString::fromUtf8(QByteArray::fromBase64(val.mid(2).toUtf8()));
-    // обратная совместимость: если сохранён открытый base64 без префикса
     return QString::fromUtf8(QByteArray::fromBase64(val.toUtf8()));
 }
 

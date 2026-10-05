@@ -11,10 +11,11 @@ set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets Svg)
 
-# AES-256-GCM для шифрования истории. Ищем OpenSSL; если нет —
-# SMARTCLIP_HAVE_OPENSSL не определяем, и приложение работает без шифрования
-# (данные остаются в открытом виде, но сборка не падает).
-find_package(OpenSSL QUIET)
+# AES-256-GCM для шифрования истории — ЖЁСТКАЯ зависимость.
+# История буфера обмена ОБЯЗАНА храниться зашифрованной, поэтому OpenSSL
+# требуется: без него сборка падает с понятной ошибкой, а не «тихо» работает
+# без шифрования (fail-closed вместо fail-open).
+find_package(OpenSSL REQUIRED)
 
 qt_add_executable(SmartClip
     main.cpp
@@ -51,8 +52,6 @@ if(OpenSSL_FOUND)
     target_link_libraries(SmartClip PRIVATE OpenSSL::Crypto)
     target_compile_definitions(SmartClip PRIVATE SMARTCLIP_HAVE_OPENSSL)
     message(STATUS "SmartClip: OpenSSL найден — шифрование истории включено")
-else()
-    message(WARNING "SmartClip: OpenSSL НЕ найден — шифрование истории недоступно")
 endif()
 
 # Сетевая синхронизация через MQTT (Qt6::Mqtt). Модуль опционален: без него

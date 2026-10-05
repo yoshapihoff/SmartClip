@@ -4,6 +4,7 @@
 #include "../SyncEngine.h"
 #include "../HistoryManager.h"
 #include "../SettingsManager.h"
+#include "../Crypto.h"
 
 using HistoryItem = HistoryManager::HistoryItem;
 
@@ -430,16 +431,22 @@ void TestSyncEngine::testAddToHistoryResurrects()
 
 void TestSyncEngine::testNetworkSettingsRoundTrip()
 {
+    if (!Crypto::available())
+        QSKIP("OpenSSL недоступен — секреты не шифруются/не сохраняются");
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
     const QString path = dir.filePath("settings.yml");
+    // Общий ключ keyring: без него секреты НЕ сохраняются (fail-closed).
+    const QByteArray key = Crypto::randomBytes(32);
 
     SettingsManager s;
+    s.setSecretKey(key);
     s.loadSettings(path);
     s.setNetworkSettings(true, "broker.example.com", 8883, true, "user1",
                          "secretPW", "groupKey", "slave", "room42");
 
     SettingsManager s2;
+    s2.setSecretKey(key);
     s2.loadSettings(path);
     QCOMPARE(s2.syncEnabled(), true);
     QCOMPARE(s2.brokerHost(), QString("broker.example.com"));
