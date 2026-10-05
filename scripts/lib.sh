@@ -9,6 +9,12 @@ readonly SCRIPT_DIR PROJECT_DIR
 
 readonly APP_NAME="SmartClip"
 
+# Каталог готовых артефактов (AppImage/.app).
+DIST_DIR="$PROJECT_DIR/dist"
+
+# Гарантировать существование dist/.
+ensure_dist() { mkdir -p "$DIST_DIR"; }
+
 # Каталог для скачиваемых инструментов упаковки (linuxdeploy/appimagetool).
 readonly TOOLS_DIR="${SMARTCLIP_TOOLS_DIR:-$HOME/.cache/smartclip-tools}"
 

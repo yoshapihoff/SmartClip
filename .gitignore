@@ -41,5 +41,6 @@ ehthumbs.db
 Thumbs.db
 
 # Built artifacts (не отслеживаем — генерируются сборкой)
+dist/
 SmartClip-x86_64.AppImage
 *.AppDir/

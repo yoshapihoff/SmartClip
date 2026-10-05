@@ -59,8 +59,11 @@ brew install qt@6 cmake
 
 ```bash
 scripts/build-appimage.sh            # скачает linuxdeploy/appimagetool и соберёт
-# → SmartClip-x86_64.AppImage   (Qt6/OpenSSL/MQTT/libsecret внутри)
+# → dist/SmartClip-x86_64.AppImage   (Qt6/OpenSSL/MQTT/libsecret внутри)
 ```
+
+Готовые артефакты складываются в **`dist/`** (в корне — ничего не litter'ится,
+AppDir живёт в `build-linux/`). Путь можно переопределить: `--out FILE`.
 
 Требуется только `curl`, `file`, `patchelf`; инструменты упаковки скрипт
 скачивает сам в `~/.cache/smartclip-tools`. Приложение запускается на любом
@@ -90,6 +93,7 @@ scripts/build-linux.sh
 ```bash
 scripts/build-macos.sh            # → build-macos/SmartClip.app
 scripts/build-macos.sh --bundle   # + macdeployqt: Qt/OpenSSL внутрь .app
+scripts/build-macos.sh --bundle --dist   # + копия в dist/SmartClip.app
 ```
 
 **Зависимости для сборки:** `brew install qt@6 cmake openssl@3`.
@@ -105,7 +109,9 @@ make build                 # сборка (Qt6 определяется авто
 make build QT_PATH=/opt/Qt/6.7.0/gcc_64
 make build BUILD_TYPE=Debug
 make install PREFIX=$HOME/.local   # или: sudo make install
-make appimage              # → AppImage
+make appimage              # → dist/SmartClip-x86_64.AppImage
+make dist                  # то же + показать артефакты в dist/
+make bundle-macos          # macOS: .app с Qt/OpenSSL → dist/
 make test                  # тесты (offscreen)
 ```
 

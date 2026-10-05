@@ -8,7 +8,7 @@
 #   scripts/build-appimage.sh [--skip-build] [--jobs N] [--out FILE]
 #     --skip-build  использовать уже собранный build-linux/SmartClip
 #     --jobs N      параллелизм сборки (по умолчанию: nproc)
-#     --out FILE    имя выходного файла (по умолчанию SmartClip-x86_64.AppImage)
+#     --out FILE    имя выходного файла (по умолчанию dist/SmartClip-x86_64.AppImage)
 #
 # Зависимости инструментов: curl, file, patchelf (для linuxdeploy), bash.
 # Всё остальное Qt/OpenSSL linuxdeploy забирает из системы автоматически.
@@ -17,7 +17,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 BUILD_DIR="build-linux"
 BINARY="$BUILD_DIR/$APP_NAME"
-OUT="$APP_NAME-x86_64.AppImage"
+OUT=""   # по умолчанию — dist/$APP_NAME-x86_64.AppImage
 JOBS="$(nproc 2>/dev/null || echo 2)"
 DO_BUILD=1
 
@@ -35,6 +35,13 @@ done
 [ "$(uname -s)" = "Linux" ] || die "AppImage собирается только на Linux."
 
 cd "$PROJECT_DIR"
+ensure_dist
+# Артефакт по умолчанию едет в dist/; --out (относительный) — тоже туда.
+if [ -z "$OUT" ]; then
+    OUT="$DIST_DIR/$APP_NAME-x86_64.AppImage"
+elif [ "${OUT#/}" = "$OUT" ]; then
+    OUT="$DIST_DIR/$OUT"
+fi
 
 # ── 1. Инструменты упаковки ──────────────────────────────────────────────
 TOOL_BASE="https://github.com"
@@ -54,7 +61,8 @@ fi
 [ -f "$BINARY" ] || die "нет бинарника $BINARY (собери без --skip-build)."
 
 # ── 3. Каркас AppDir ─────────────────────────────────────────────────────
-APPDIR="$APP_NAME.AppDir"
+# AppDir держим в каталоге сборки (не в корне репы, чтобы не litter'ить).
+APPDIR="$BUILD_DIR/$APP_NAME.AppDir"
 log "Готовлю AppDir…"
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" \
@@ -105,5 +113,6 @@ echo
 log "Готово: $OUT"
 ls -lh "$OUT"
 echo
-echo "Запуск:            ./$OUT"
-echo "Проверка (headless): QT_QPA_PLATFORM=offscreen ./$OUT"
+rel="${OUT#$PROJECT_DIR/}"
+echo "Запуск:            ./$rel"
+echo "Проверка (headless): QT_QPA_PLATFORM=offscreen ./$rel"

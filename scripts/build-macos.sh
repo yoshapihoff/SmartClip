@@ -2,9 +2,10 @@
 # Сборка SmartClip.app под macOS + подсказка по зависимостям для запуска.
 #
 # Использование:
-#   scripts/build-macos.sh [--bundle] [--debug] [--jobs N]
+#   scripts/build-macos.sh [--bundle] [--dist] [--debug] [--jobs N]
 #     --bundle   упаковать Qt/OpenSSL внутрь .app через macdeployqt
 #                (чтобы приложение запускалось без установленного Qt)
+#     --dist     скопировать готовый .app в dist/ (артефакт для раздачи)
 #     --debug    сборка Debug (по умолчанию Release)
 #     --jobs N   параллелизм (по умолчанию: все ядра)
 #
@@ -17,14 +18,16 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 BUILD_DIR="build-macos"
 BUILD_TYPE="Release"
 DO_BUNDLE=0
+DO_DIST=0
 JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --bundle) DO_BUNDLE=1 ;;
+        --dist) DO_DIST=1 ;;
         --debug) BUILD_TYPE="Debug" ;;
         --jobs) shift; JOBS="${1:?--jobs требует число}" ;;
-        -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
         *) die "неизвестный аргумент: $1" ;;
     esac
     shift
@@ -84,6 +87,12 @@ fi
 
 echo
 log "Готово: $APP"
+if [ "$DO_DIST" -eq 1 ]; then
+    ensure_dist
+    rm -rf "$DIST_DIR/$APP_NAME.app"
+    cp -R "$APP" "$DIST_DIR/$APP_NAME.app"
+    log "Артефакт: $DIST_DIR/$APP_NAME.app"
+fi
 echo "Запуск:  open \"$APP\"   (или: $APP/Contents/MacOS/$APP_NAME)"
 cat <<'DEPS'
 

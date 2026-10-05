@@ -252,7 +252,7 @@ test-verbose: build
 # Convenience: linux-specific targets
 # =========================
 
-.PHONY: linux linux-build linux-install linux-run linux-test linux-uninstall appimage
+.PHONY: linux linux-build linux-install linux-run linux-test linux-uninstall appimage dist
 
 linux: linux-build
 
@@ -262,6 +262,10 @@ linux-build:
 appimage:
 	@echo "=== Building AppImage ==="
 	@./scripts/build-appimage.sh
+
+dist: appimage
+	@echo "=== Артефакт в dist/ ==="
+	@ls -lh dist/ 2>/dev/null || echo "(пусто)"
 
 linux-install:
 	@./scripts/install-linux.sh --prefix $(PREFIX)
@@ -279,7 +283,7 @@ linux-uninstall:
 # Convenience: macos-specific targets
 # =========================
 
-.PHONY: macos macos-build macos-run macos-test
+.PHONY: macos macos-build macos-run macos-test bundle-macos
 
 macos: macos-build
 
@@ -291,3 +295,7 @@ macos-run:
 
 macos-test:
 	@$(MAKE) test BUILD_DIR=build-macos
+
+# Готовый .app с упакованными Qt/OpenSSL, сложенный в dist/.
+bundle-macos:
+	@./scripts/build-macos.sh --bundle --dist

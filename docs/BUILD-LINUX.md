@@ -110,13 +110,16 @@ cmake --install build-linux
 
 ```bash
 scripts/build-appimage.sh
-# → SmartClip-x86_64.AppImage   (Qt6/OpenSSL/MQTT/libsecret внутри)
+# → dist/SmartClip-x86_64.AppImage   (Qt6/OpenSSL/MQTT/libsecret внутри)
 ```
+
+Готовый артефакт кладётся в **`dist/`** (AppDir — в `build-linux/`, корень репы
+не замусоривается). Путь можно переопределить через `--out FILE`.
 
 Скрипт сам скачает `linuxdeploy`/`appimagetool` (в `~/.cache/smartclip-tools`),
 соберёт бинарник, уложит Qt6/OpenSSL и соберёт образ. Запускается на любом
 дистрибутиве без установки Qt. Проверка без дисплея:
-`QT_QPA_PLATFORM=offscreen ./SmartClip-x86_64.AppImage`.
+`QT_QPA_PLATFORM=offscreen ./dist/SmartClip-x86_64.AppImage`.
 
 ---
 
