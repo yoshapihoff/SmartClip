@@ -2,7 +2,7 @@
 Type=Application
 Name=SmartClip
 Comment=Clipboard History Manager
-Exec=smartclip
+Exec=SmartClip
 Icon=smartclip
 Terminal=false
 Categories=Utility;
