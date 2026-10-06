@@ -56,10 +56,16 @@ endif()
 
 # Сетевая синхронизация через MQTT (Qt6::Mqtt). Модуль опционален: без него
 # приложение собирается, а синк просто выключен (MqttClient::available()==false).
-find_package(Qt6 QUIET COMPONENTS Mqtt)
+find_package(Qt6 QUIET COMPONENTS Mqtt Network)
 if(Qt6Mqtt_FOUND)
     target_link_libraries(SmartClip PRIVATE Qt6::Mqtt)
     target_compile_definitions(SmartClip PRIVATE SMARTCLIP_HAVE_MQTT)
+    # Qt6::Network нужен для мониторинга доступности сети (QNetworkInformation),
+    # чтобы мгновенно переподключаться, когда интернет вернулся.
+    if(Qt6Network_FOUND)
+        target_link_libraries(SmartClip PRIVATE Qt6::Network)
+        target_compile_definitions(SmartClip PRIVATE SMARTCLIP_HAVE_NETWORKINFO)
+    endif()
     message(STATUS "SmartClip: Qt6::Mqtt найден — сетевая синхронизация включена")
 else()
     message(WARNING "SmartClip: Qt6::Mqtt НЕ найден — сетевая синхронизация недоступна (установите qt6-mqtt)")

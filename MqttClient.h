@@ -7,6 +7,7 @@
 #ifdef SMARTCLIP_HAVE_MQTT
 class QMqttClient;
 #endif
+class QTimer;
 
 // ─────────────────────────────────────────────────────────────────────────
 // MqttClient — тонкая обёртка над QMqttClient(Qt6::Mqtt).
@@ -63,6 +64,19 @@ private slots:
 private:
     void setStatus(Status s, const QString &error = QString());
 
+#ifdef SMARTCLIP_HAVE_MQTT
+    /** Планирует следующую попытку переподключения (только если m_wanted).
+     *  Экспоненциальный backoff: старт 2 с, ×2, потолок 60 с, джиттер ±20 %.
+     *  Повторные вызовы, пока таймер уже идёт, игнорируются. */
+    void scheduleReconnect();
+    /** Фактический запуск соединения (без правки флага/backoff). */
+    void startConnect();
+    /** Немедленная попытка (событие «сеть вернулась»): гасит текущий таймер,
+     *  сокращает backoff к старту и пробует подключиться прямо сейчас. */
+    void tryNow();
+    void onReconnectTimeout();
+#endif
+
     QString m_host;
     int m_port = 1883;
     bool m_tls = false;
@@ -72,7 +86,15 @@ private:
     Status m_status = Status::Disconnected;
     QString m_lastError;
 
+    // Флаг «хочу быть подключён»: взводится connectToBroker(), снимается
+    // disconnectFromBroker(). Пока взведён — при обрыве/ошибке планируется
+    // автопереподключение. Осознанный stop() попыток не крутит.
+    bool m_wanted = false;
+
 #ifdef SMARTCLIP_HAVE_MQTT
     QMqttClient *m_client = nullptr;
+    QTimer *m_reconnectTimer = nullptr;   // backoff-таймер автопереподключения
+    int m_reconnectDelayMs = 0;           // текущая задержка (0 = планируем впервые)
+    bool m_reachabilityHooked = false;    // подписались ли на события сети
 #endif
 };
