@@ -207,6 +207,25 @@ SmartClipApp::SmartClipApp(QObject *parent)
                 &SmartClipApp::onHelp);
         connect(trayPopup, &TrayPopup::quitRequested, this,
                 &SmartClipApp::onQuit);
+
+        // Закрытие попапа по клику МИМО окна: на Wayland XWayland-попап не
+        // всегда ловит клик вне, поэтому GNOME-расширение пишет файл-сигнал.
+        popupDismissTimer = new QTimer(this);
+        popupDismissTimer->setInterval(400);
+        connect(popupDismissTimer, &QTimer::timeout, this, [this]() {
+            if (!trayPopup || !trayPopup->isVisible())
+                return;
+            const QString dir = qEnvironmentVariable("XDG_RUNTIME_DIR");
+            if (dir.isEmpty())
+                return;
+            QFileInfo fi(dir + "/smartclip-tray-dismiss");
+            if (!fi.exists())
+                return;
+            // Сигнал свежее момента показа попапа → закрываем.
+            if (fi.lastModified().toMSecsSinceEpoch() > popupShownAtMs)
+                trayPopup->hide();
+        });
+        popupDismissTimer->start();
     }
 
     if (!trayPopupEnabled) {
@@ -884,6 +903,7 @@ void SmartClipApp::showTrayPopup()
         if (g.isValid() && !g.isEmpty())
             anchor = QPoint(g.center().x(), g.bottom());
     }
+    popupShownAtMs = QDateTime::currentMSecsSinceEpoch();
     trayPopup->showAt(anchor);
 }
 

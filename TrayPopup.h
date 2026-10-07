@@ -60,6 +60,7 @@ signals:
 protected:
     void keyPressEvent(QKeyEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
+    bool event(QEvent *event) override;
 
 private:
     void applyStyle();

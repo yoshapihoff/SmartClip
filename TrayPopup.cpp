@@ -19,6 +19,8 @@
 #include <QLayoutItem>
 #include <QPen>
 #include <cmath>
+#include <QDebug>
+#include <QEvent>
 
 namespace {
 
@@ -481,6 +483,34 @@ void TrayPopup::paintEvent(QPaintEvent *event)
     QPainter p(this);
     p.fillRect(rect(), Qt::transparent);
     QWidget::paintEvent(event);
+}
+
+bool TrayPopup::event(QEvent *event)
+{
+    if (qEnvironmentVariableIsSet("SMARTCLIP_POPUP_DEBUG")) {
+        switch (event->type()) {
+        case QEvent::MouseButtonPress:
+        case QEvent::WindowDeactivate:
+        case QEvent::WindowActivate:
+        case QEvent::FocusOut:
+        case QEvent::FocusIn:
+        case QEvent::Hide:
+            qInfo() << "TrayPopup event:" << event->type();
+            break;
+        default:
+            break;
+        }
+    }
+
+    // Надёжное закрытие «как меню»: помимо штатного Qt::Popup (клик вне),
+    // прячем окно, когда оно теряет активность окна/приложения. На части
+    // Wayland/XWayland-сборок штатный захват мыши не срабатывает.
+    if (event->type() == QEvent::WindowDeactivate ||
+        event->type() == QEvent::ApplicationDeactivate) {
+        if (isVisible())
+            hide();
+    }
+    return QWidget::event(event);
 }
 
 #include "TrayPopup.moc"

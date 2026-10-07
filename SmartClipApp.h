@@ -74,6 +74,10 @@ private:
     // SMARTCLIP_NO_TRAY_POPUP=1). Даёт контроль над видом/отступами.
     TrayPopup *trayPopup = nullptr;
     bool trayPopupEnabled = false;
+    /** Таймер опроса файла-сигнала «закрыть попап» (клик вне окна). */
+    QTimer *popupDismissTimer = nullptr;
+    /** Время показа попапа (мс) — чтобы не реагировать на старый сигнал. */
+    qint64 popupShownAtMs = 0;
     /** Собрать строки для попапа из истории и показать окно у иконки. */
     void showTrayPopup();
     /** Пересобрать содержимое попапа (если он включён). */
