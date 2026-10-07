@@ -208,7 +208,14 @@ SmartClipApp::SmartClipApp(QObject *parent)
                 &SmartClipApp::onQuit);
     }
 
-    trayIcon.setContextMenu(&trayMenu);
+    if (!trayPopupEnabled) {
+        // Фолбэк: своё окно выключено → показываем нативное меню десктопа.
+        trayIcon.setContextMenu(&trayMenu);
+    }
+    // ВАЖНО (macOS): если задать контекстное меню, клик по иконке открывает
+    // ИМЕННО его, а сигнал activated НЕ приходит — своё окно тогда не показать.
+    // Поэтому при включённом попапе нативное меню не назначаем: клик ловим
+    // сами в activated и открываем своё окно (одинаково на macOS и Linux).
     trayIcon.setToolTip(QString("SmartClip %1").arg(SMARTCLIP_VERSION_STRING));
     
     // Обработчик кликов по иконке трея
