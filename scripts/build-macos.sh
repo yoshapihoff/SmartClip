@@ -154,6 +154,38 @@ if [ "$DO_BUNDLE" -eq 1 ]; then
     # Гарантируем встроенный rpath
     otool -l "$EXE" | grep -q '@executable_path/../Frameworks' \
         || "$INT" -add_rpath "@executable_path/../Frameworks" "$EXE"
+    # ── Вложить OpenSSL (libcrypto/libssl) ──────────────────────────────
+    # macdeployqt копирует ТОЛЬКО Qt. OpenSSL приложение использует напрямую
+    # (шифрование истории), поэтому без него .app на чужой машине не стартует.
+    # Копируем dylib(ы) в бандл и переписываем ссылки на @rpath.
+    FW="$APP/Contents/Frameworks"
+    mkdir -p "$FW"
+    bundle_dylib() {
+        local src="$1" base dest m
+        [ -f "$src" ] || return 0
+        base="$(basename "$src")"
+        dest="$FW/$base"
+        if [ ! -f "$dest" ]; then
+            cp -f "$src" "$dest"; chmod u+w "$dest"
+        fi
+        "$INT" -id "@rpath/$base" "$dest" 2>/dev/null || true
+        while IFS= read -r m; do
+            otool -L "$m" 2>/dev/null | grep -q "$src" || continue
+            "$INT" -change "$src" "@rpath/$base" "$m" 2>/dev/null || true
+        done < <(find "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/PlugIns" -type f 2>/dev/null)
+    }
+    for lib in libcrypto libssl; do
+        src="$(ls "$OPENSSL_PREFIX"/lib/$lib.[0-9]*.dylib 2>/dev/null | head -1)"
+        [ -n "$src" ] || src="$(ls "$OPENSSL_PREFIX"/lib/$lib.dylib 2>/dev/null | head -1)"
+        [ -n "$src" ] && { log "Вкладываю $(basename "$src")…"; bundle_dylib "$src"; }
+    done
+    # Гарантируем rpath на Frameworks у плагинов (они грузят вложенные dylib).
+    for m in "$EXE" "$APP"/Contents/PlugIns/platforms/*.dylib; do
+        [ -f "$m" ] || continue
+        otool -l "$m" 2>/dev/null | grep -q '@executable_path/../Frameworks' && continue
+        "$INT" -add_rpath "@executable_path/../Frameworks" "$m" 2>/dev/null || true
+    done
+
     # Переподписываем ad-hoc (arm64 иначе откажется запускать изменённый
     # бинарник; install_name_tool ломает подпись).
     if command -v codesign >/dev/null 2>&1; then
@@ -164,21 +196,24 @@ fi
 
 # ── Проверка самодостаточности ──────────────────────────────────────────
 if [ "$DO_BUNDLE" -eq 1 ]; then
-    log "Проверка бандла…"
+    log "Проверка бандла (external refs)…"
     bad=0
-    for f in "$APP/Contents/MacOS/$APP_NAME" "$APP"/Contents/PlugIns/platforms/*.dylib; do
+    for f in "$APP/Contents/MacOS/$APP_NAME" "$APP"/Contents/Frameworks/*.dylib "$APP"/Contents/PlugIns/platforms/*.dylib; do
         [ -f "$f" ] || continue
-        ext="$(otool -L "$f" | grep -Eo '/Volumes/[^ ]*/Qt[^ ]*|/[^ ]*/6\.[0-9.]+/[a-z_]+/lib/Qt[^ ]*' || true)"
+        # Всё вне /usr/lib и /System считается внешней зависимостью
+        # (Homebrew/usr-local/Volumes/…) — должно быть вложено в бандл.
+        ext="$(otool -L "$f" | tail -n +2 | awk '{print $1}' \
+               | grep -E '^/' | grep -vE '^/usr/lib/|^/System/' || true)"
         if [ -n "$ext" ]; then
-            warn "$(basename "$f") всё ещё линкует внешний Qt:"
+            warn "$(basename "$f") линкует внешние пути:"
             echo "$ext" | sed 's/^/    /' >&2
             bad=1
         fi
     done
     if [ "$bad" -eq 0 ]; then
-        log "OK: бандл самодостаточен (внешних Qt-ссылок нет)."
+        log "OK: бандл самодостаточен (внешних ссылок нет)."
     else
-        warn "Бандл не самодостаточен — на машине без этого Qt запуск упадёт."
+        warn "Бандл НЕ самодостаточен — на машине без этих библиотек запуск упадёт."
     fi
 fi
 

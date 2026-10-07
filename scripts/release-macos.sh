@@ -58,8 +58,10 @@ log "[2/3] Проверка самодостаточности бандла…"
 bad=0
 while IFS= read -r f; do
     [ -f "$f" ] || continue
-    ext="$(otool -L "$f" 2>/dev/null | grep -Eo '/Qt[^ ]*|/opt/homebrew/[^ ]*|/usr/local/[^ ]*' \
-           | grep -vE '^/usr/lib/|^/System/' || true)"
+    # Внешняя зависимость = абсолютный путь вне /usr/lib и /System
+    # (Homebrew/usr-local/Volumes/… должны быть вложены в бандл).
+    ext="$(otool -L "$f" 2>/dev/null | tail -n +2 | awk '{print $1}' \
+           | grep -E '^/' | grep -vE '^/usr/lib/|^/System/' || true)"
     if [ -n "$ext" ]; then
         warn "$(basename "$f") ссылается на внешние пути:"; echo "$ext" | sed 's/^/    /' >&2
         bad=1
@@ -68,7 +70,7 @@ done < <(find "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/Pl
 if [ "$bad" -eq 0 ]; then
     log "OK: бандл самодостаточен."
 else
-    die "бандл НЕ самодостаточен — на машине без этого Qt запуск упадёт (проверь macdeployqt)."
+    die "бандл НЕ самодостаточен — на машине без этих библиотек запуск упадёт (проверь macdeployqt/OpenSSL)."
 fi
 
 # ── 3. Архивы: zip (всегда) + dmg (если есть hdiutil) ─────────────────────

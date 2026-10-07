@@ -92,12 +92,18 @@ jobs:
   publish:
     name: Publish GitHub release
     needs: [linux, macos]
+    # Публикуем, если Linux-сборка прошла — даже если macOS споткнулся
+    # (тогда релиз будет с Linux-артефактами, без macOS).
+    if: ${{ !cancelled() && needs.linux.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           path: artifacts
           merge-multiple: true
+
+      - uses: actions/checkout@v4
 
       - name: Read version
         id: v
@@ -110,8 +116,9 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${TAG_PREFIX}${VERSION}"
+          ls -la artifacts || true
           gh release view "$TAG" >/dev/null 2>&1 || \
             gh release create "$TAG" --title "SmartClip $VERSION" \
-              --notes "Релиз SmartClip $VERSION (автосборка CI)."
+              --notes "Релиз SmartClip $VERSION (автосборка CI). Артефакты: Linux (AppImage/deb/tar.gz), macOS (.app со вложенными зависимостями)."
           # --clobber перезаписывает одноимённые ассеты (идемпотентность).
           gh release upload "$TAG" artifacts/* --clobber
