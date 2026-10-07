@@ -121,7 +121,9 @@ cmake -S . -B "$BUILD_DIR" \
     -DOPENSSL_ROOT_DIR="$OPENSSL_PREFIX"
 
 log "Сборка ($JOBS потоков)…"
-cmake --build "$BUILD_DIR" --config "$BUILD_TYPE" --parallel "$JOBS"
+# Для релиза собираем только цель приложения (без тестов): тесты при упаковке
+# не нужны, а их сборочные сюрпризы не должны ломать релизный артефакт.
+cmake --build "$BUILD_DIR" --config "$BUILD_TYPE" --target "$APP_NAME" --parallel "$JOBS"
 
 APP="$BUILD_DIR/$APP_NAME.app"
 [ -d "$APP" ] || die "не найден бандл $APP"
