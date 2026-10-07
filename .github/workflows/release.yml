@@ -71,6 +71,9 @@ jobs:
         run: |
           set -eux
           brew install cmake openssl@3 qt
+          # Доп. keg'и Qt (разбит на модули): macdeployqt иначе не находит
+          # фреймворки, которые тянут плагины. Best-effort.
+          brew install qtpdf webp 2>/dev/null || echo "необязательные keg'и не установлены"
           # QtMqtt в brew-формуле 'qt' отсутствует. Если задан секрет
           # QT_MACOS_PREFIX (префикс Qt Online Installer с модулем Mqtt),
           # сборка включит сетевую синхронизацию; иначе — без неё.
@@ -81,6 +84,9 @@ jobs:
         run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Build release artifacts (.app + zip + dmg)
+        # macOS-пакет — best-effort: сбой (капризы Homebrew-qt/macdeployqt)
+        # не должен блокировать выпуск Linux-артефактов в релиз.
+        continue-on-error: true
         env:
           QT_MACOS_PREFIX: ${{ secrets.QT_MACOS_PREFIX }}
         run: |
@@ -91,15 +97,16 @@ jobs:
           if [ "$st" -ne 0 ]; then
             # Собираем все ошибки в ОДНУ аннотацию (GitHub режет список аннотаций).
             msg=$(grep -iE 'error:|error C|fatal error|FAILED|cannot|undefined' "$RUNNER_TEMP/macos-build.log" | head -25 | tr '\n' '|')
-            echo "::error::release-macos.sh exit $st :: ${msg:-см. лог}"
+            echo "::warning::release-macos.sh exit $st (macOS-артефакт пропущен) :: ${msg:-см. лог}"
           fi
-          exit "$st"
+          exit 0
 
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: smartclip-macos-${{ steps.v.outputs.version }}
           path: dist/release-${{ steps.v.outputs.version }}/*
-          if-no-files-found: error
+          if-no-files-found: warn
 
   publish:
     name: Publish GitHub release
