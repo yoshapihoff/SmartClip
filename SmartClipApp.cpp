@@ -25,6 +25,7 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <QFileInfo>
+#include <QDateTime>
 #include <QDialog>
 #include <QVBoxLayout>
 #include <QPlainTextEdit>
@@ -844,11 +845,45 @@ void SmartClipApp::showTrayPopup()
         return;
     refreshTrayPopup();
 
-    // На GNOME SNI trayIcon.geometry() часто пуст; тогда открываемся у курсора.
-    const QRect g = trayIcon.geometry();
-    const QPoint anchor = (g.isValid() && !g.isEmpty())
-        ? QPoint(g.center().x(), g.bottom())
-        : QCursor::pos();
+    // Точку клика берём от GNOME-расширения (Qt не отдаёт координаты из SNI):
+    // оно пишет "x,y" в $XDG_RUNTIME_DIR/smartclip-tray-anchor. Файл свежий
+    // (< 2 c) → встаём ровно под точкой клика; иначе — у курсора/иконки.
+    QPoint anchor = QCursor::pos();
+    bool haveAnchor = false;
+
+    auto readAnchor = [](const QString &path) {
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+            return QPoint();
+        const QByteArray data = f.readAll().trimmed();
+        const QList<QByteArray> parts = data.split(',');
+        bool ok1 = false, ok2 = false;
+        const int x = parts.value(0).toInt(&ok1);
+        const int y = parts.value(1).toInt(&ok2);
+        return (ok1 && ok2) ? QPoint(x, y) : QPoint();
+    };
+
+    const QString dir = qEnvironmentVariable("XDG_RUNTIME_DIR");
+    if (!dir.isEmpty()) {
+        const QString anchorFile = dir + "/smartclip-tray-anchor";
+        QFileInfo fi(anchorFile);
+        if (fi.exists()) {
+            const QPoint p = readAnchor(anchorFile);
+            // Свежесть: файл не старше 2 секунд (иначе это давний клик).
+            if (!p.isNull()
+                && fi.lastModified().secsTo(QDateTime::currentDateTime()) <= 2) {
+                anchor = p;
+                haveAnchor = true;
+            }
+        }
+    }
+
+    if (!haveAnchor) {
+        // Фолбэк: у иконки трея, если geometry известна; иначе — у курсора.
+        const QRect g = trayIcon.geometry();
+        if (g.isValid() && !g.isEmpty())
+            anchor = QPoint(g.center().x(), g.bottom());
+    }
     trayPopup->showAt(anchor);
 }
 

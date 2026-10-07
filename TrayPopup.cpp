@@ -441,13 +441,24 @@ void TrayPopup::showAt(const QPoint &anchor)
         screen = QGuiApplication::primaryScreen();
     const QRect area = screen->availableGeometry();
 
-    int x = anchor.x() - width() / 2;
-    int y = anchor.y() + 8;
+    // Встаём СРАЗУ ПОД точкой клика: левый край окна — от точки клика,
+    // ниже — небольшой отступ. Если правый край выходит за экран — сдвигаем
+    // влево. Если снизу не влезает — показываем НАД точкой клика.
+    constexpr int kGap = 6;
+    constexpr int kMargin = 6;
 
-    x = qBound(area.left() + 4, x, area.right() - width() - 4);
-    if (y + height() > area.bottom() - 4)
-        y = anchor.y() - height() - 8;
-    y = qBound(area.top() + 4, y, area.bottom() - height() - 4);
+    int x = anchor.x();
+    int y = anchor.y() + kGap;
+
+    if (x + width() > area.right() - kMargin)
+        x = area.right() - kMargin - width();
+    if (x < area.left() + kMargin)
+        x = area.left() + kMargin;
+
+    if (y + height() > area.bottom() - kMargin)
+        y = anchor.y() - kGap - height();
+    if (y < area.top() + kMargin)
+        y = area.top() + kMargin;
 
     move(x, y);
     show();
