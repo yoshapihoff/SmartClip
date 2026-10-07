@@ -18,6 +18,8 @@
 #include "../SettingsManager.h"
 #include "../HistoryManager.h"
 #include "../LaunchAgentManager.h"
+#include "../TrayPopup.h"
+#include <QPushButton>
 
 class TestSmartClipApp : public QObject
 {
@@ -50,6 +52,7 @@ private slots:
     void testIconUpdate();
     void testMultipleClipboardChanges();
     void testFavoriteColorPersistence();
+    void testTrayPopupHideButton();
 
 private:
     QApplication *m_app;
@@ -440,6 +443,34 @@ void TestSmartClipApp::testFavoriteColorPersistence()
     QFile::remove(settingsPath);
     tempDirObj.rmdir(".smartclip");
     QDir().rmdir(tempDir);
+}
+
+// Кнопка Hide в футере попапа должна быть на месте, жирной, и прятать окно.
+void TestSmartClipApp::testTrayPopupHideButton()
+{
+    TrayPopup popup;
+    popup.setRows({});
+    popup.showAt(QPoint(200, 100));
+    QVERIFY2(popup.isVisible(), "Popup should be visible after showAt");
+
+    QPushButton *hideBtn = popup.findChild<QPushButton *>(QStringLiteral("hideBtn"));
+    QVERIFY2(hideBtn != nullptr, "Footer must contain the Hide button");
+    QVERIFY2(hideBtn->text() == QStringLiteral("Hide"), "Hide button text");
+    QVERIFY2(hideBtn->font().bold(), "Hide button text must be bold");
+
+    // Кнопка Hide идёт ПЕРЕД Clear в футере.
+    QPushButton *clearBtn = nullptr;
+    for (QPushButton *b : popup.findChildren<QPushButton *>()) {
+        if (b->text() == QStringLiteral("Clear")) { clearBtn = b; break; }
+    }
+    QVERIFY2(clearBtn != nullptr, "Footer must contain Clear");
+    const QPoint hp = hideBtn->mapTo(&popup, QPoint(0, 0));
+    const QPoint cp = clearBtn->mapTo(&popup, QPoint(0, 0));
+    QVERIFY2(hp.x() < cp.x(), "Hide must be placed before Clear");
+
+    // Клик по Hide прячет окно.
+    hideBtn->click();
+    QVERIFY2(!popup.isVisible(), "Clicking Hide must hide the popup");
 }
 
 QTEST_MAIN(TestSmartClipApp)

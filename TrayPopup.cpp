@@ -14,6 +14,7 @@
 #include <QScrollArea>
 #include <QToolButton>
 #include <QFontMetrics>
+#include <QFont>
 #include <QEnterEvent>
 #include <QMouseEvent>
 #include <QLayoutItem>
@@ -21,6 +22,32 @@
 #include <cmath>
 #include <QDebug>
 #include <QEvent>
+#include <QTimer>
+#include <QWindow>
+
+
+namespace {
+/**
+ * Флаги окна попапа.
+ *
+ * Штатный Qt::Popup (нужного вида «меню») захватывает указатель. На
+ * XWayland этот X11-захват съедает клики МИМО окна: они не доходят ни до
+ * самого окна, ни до оболочки — поэтому меню не закрывалось. В таком режиме
+ * захват не берём, а закрытие делают: 1) GNOME-расширение сигналом dismiss
+ * при клике мимо иконки/окна; 2) реакция на потерю активности окна.
+ * На нативном X11 и macOS штатный Qt::Popup работает корректно — оставляем.
+ */
+Qt::WindowFlags popupWindowFlags()
+{
+    Qt::WindowFlags flags = Qt::FramelessWindowHint
+                          | Qt::NoDropShadowWindowHint;
+    if (qEnvironmentVariableIsSet("WAYLAND_DISPLAY"))
+        flags |= Qt::Tool | Qt::WindowStaysOnTopHint;
+    else
+        flags |= Qt::Popup;
+    return flags;
+}
+} // namespace
 
 namespace {
 
@@ -145,8 +172,7 @@ private:
 };
 
 TrayPopup::TrayPopup(QWidget *parent)
-    : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint
-                          | Qt::NoDropShadowWindowHint)
+    : QWidget(parent, popupWindowFlags())
 {
     setAttribute(Qt::WA_TranslucentBackground);
     setFocusPolicy(Qt::StrongFocus);
@@ -199,9 +225,10 @@ TrayPopup::TrayPopup(QWidget *parent)
     footer->setContentsMargins(0, 2, 0, 0);
     footer->setSpacing(2);
     auto addFooter = [&](const QString &label, const QString &tip,
-                         void (TrayPopup::*signal)()) {
+                         void (TrayPopup::*signal)(),
+                         const QString &objectName = QStringLiteral("footerBtn")) {
         auto *btn = new QPushButton(label, m_card);
-        btn->setObjectName(QStringLiteral("footerBtn"));
+        btn->setObjectName(objectName);
         btn->setToolTip(tip);
         btn->setCursor(Qt::PointingHandCursor);
         btn->setFlat(true);
@@ -211,6 +238,24 @@ TrayPopup::TrayPopup(QWidget *parent)
         });
         footer->addWidget(btn);
     };
+
+    // «Hide» — заметная кнопка закрытия попапа (жирная, акцентная).
+    // Нужна потому, что на Wayland клик МИМО окна не доходит до приложения,
+    // и автоматическое закрытие «как меню» ненадёжно: явная кнопка надёжнее.
+    {
+        auto *hideBtn = new QPushButton(QStringLiteral("Hide"), m_card);
+        hideBtn->setObjectName(QStringLiteral("hideBtn"));
+        hideBtn->setToolTip(QStringLiteral("Hide this window"));
+        hideBtn->setCursor(Qt::PointingHandCursor);
+        hideBtn->setFlat(true);
+        QFont f = hideBtn->font();
+        f.setBold(true);
+        hideBtn->setFont(f);
+        connect(hideBtn, &QPushButton::clicked, this, [this]() { hide(); });
+        footer->addWidget(hideBtn);
+        // Небольшой отступ между Hide и Clear — чтобы кнопки не сливались.
+        footer->addSpacing(4);
+    }
     addFooter(QStringLiteral("Clear"), QStringLiteral("Clear history"),
               &TrayPopup::clearRequested);
     addFooter(QStringLiteral("Settings"), QStringLiteral("Settings"),
@@ -263,6 +308,13 @@ void TrayPopup::applyStyle()
             border-radius: 6px; padding: 4px 10px;
         }
         QPushButton#footerBtn:hover { background: %6; }
+
+        /* Hide — акцентная кнопка (подсвечена цветом), текст жирный. */
+        QPushButton#hideBtn {
+            color: %1; background: %7; border: none;
+            border-radius: 6px; padding: 4px 12px; font-weight: bold;
+        }
+        QPushButton#hideBtn:hover { background: %8; }
 
         QToolButton#rowAction {
             background: transparent; border: none; border-radius: 5px;
@@ -490,12 +542,21 @@ bool TrayPopup::event(QEvent *event)
     if (qEnvironmentVariableIsSet("SMARTCLIP_POPUP_DEBUG")) {
         switch (event->type()) {
         case QEvent::MouseButtonPress:
+        case QEvent::MouseButtonRelease:
         case QEvent::WindowDeactivate:
         case QEvent::WindowActivate:
         case QEvent::FocusOut:
         case QEvent::FocusIn:
         case QEvent::Hide:
-            qInfo() << "TrayPopup event:" << event->type();
+        case QEvent::Show:
+        case QEvent::Close:
+        case QEvent::ApplicationDeactivate:
+            qInfo() << "TrayPopup event:" << event->type()
+                    << "active=" << isActiveWindow()
+                    << "focusWin=" << (QGuiApplication::focusWindow()
+                                            ? QGuiApplication::focusWindow()->metaObject()
+                                                  ->className()
+                                            : "none");
             break;
         default:
             break;
