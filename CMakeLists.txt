@@ -42,6 +42,7 @@ qt_add_executable(SmartClip
     MqttClient.cpp
     SyncManager.cpp
     LaunchAgentManager.cpp
+    TrayPopup.cpp
     Version.h
     SmartClipApp.h
     SettingsManager.h
@@ -53,6 +54,7 @@ qt_add_executable(SmartClip
     MqttClient.h
     SyncManager.h
     LaunchAgentManager.h
+    TrayPopup.h
     resources.qrc
 )
 

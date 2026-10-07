@@ -116,6 +116,7 @@ qt_add_executable(SmartClipAppTest
     ${CMAKE_SOURCE_DIR}/MqttClient.cpp
     ${CMAKE_SOURCE_DIR}/SyncManager.cpp
     ${CMAKE_SOURCE_DIR}/LaunchAgentManager.cpp
+    ${CMAKE_SOURCE_DIR}/TrayPopup.cpp
 )
 
 target_link_libraries(SmartClipAppTest

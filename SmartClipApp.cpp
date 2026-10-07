@@ -8,6 +8,7 @@
 #include "Crypto.h"
 #include "MqttClient.h"
 #include "SyncManager.h"
+#include "TrayPopup.h"
 #include <QApplication>
 #include <QAction>
 #include <QClipboard>
@@ -158,11 +159,68 @@ SmartClipApp::SmartClipApp(QObject *parent)
 
     rebuildMenu();
 
+    // ── Своё окно вместо меню десктопа (по умолчанию включено) ────────
+    // Отключается SMARTCLIP_NO_TRAY_POPUP=1 — тогда работает нативное
+    // меню десктопа (как было). На macOS — тот же путь (там тоже своё окно,
+    // больше свободы в кастомизации).
+    trayPopupEnabled = !qEnvironmentVariableIsSet("SMARTCLIP_NO_TRAY_POPUP");
+    if (trayPopupEnabled) {
+        trayPopup = new TrayPopup();
+        trayPopup->setVersion(QStringLiteral(SMARTCLIP_VERSION_STRING));
+
+        connect(trayPopup, &TrayPopup::clipChosen, this,
+                [this](const QString &text) {
+                    historyManager->incrementUsageCount(text);
+                    if (QClipboard *clipboard = QApplication::clipboard()) {
+                        ignoreNextClipboardChange = true;
+                        clipboard->setText(text, QClipboard::Clipboard);
+                    }
+                    persistHistory();
+                    notifySync();
+                    rebuildMenu();
+                });
+        connect(trayPopup, &TrayPopup::favoriteToggled, this,
+                &SmartClipApp::onToggleFavorite);
+        connect(trayPopup, &TrayPopup::maskToggled, this,
+                [this](const QString &text) { toggleItemMask(text); refreshTrayPopup(); });
+        connect(trayPopup, &TrayPopup::commentRequested, this,
+                [this](const QString &text) {
+                    QString newComment;
+                    if (promptComment(text, newComment)) {
+                        historyManager->setComment(text, newComment);
+                        persistHistory();
+                        notifySync();
+                    }
+                    refreshTrayPopup();
+                });
+        connect(trayPopup, &TrayPopup::deleteRequested, this,
+                [this](const QString &text) {
+                    onDeleteItem(text);
+                    refreshTrayPopup();
+                });
+        connect(trayPopup, &TrayPopup::clearRequested, this,
+                &SmartClipApp::onClearHistory);
+        connect(trayPopup, &TrayPopup::settingsRequested, this,
+                &SmartClipApp::onSettings);
+        connect(trayPopup, &TrayPopup::helpRequested, this,
+                &SmartClipApp::onHelp);
+        connect(trayPopup, &TrayPopup::quitRequested, this,
+                &SmartClipApp::onQuit);
+    }
+
     trayIcon.setContextMenu(&trayMenu);
     trayIcon.setToolTip(QString("SmartClip %1").arg(SMARTCLIP_VERSION_STRING));
     
-    // Обработчик правого клика для переключения избранного
+    // Обработчик кликов по иконке трея
     connect(&trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
+        if (trayPopupEnabled && trayPopup) {
+            // Своё окно: открываем по любой активации (ЛКМ/ПКМ/средний),
+            // встаём рядом с иконкой (или у курсора, если геометрия пуста —
+            // на GNOME SNI trayIcon.geometry() может быть (0,0 0x0)).
+            (void)reason;
+            showTrayPopup();
+            return;
+        }
         if (reason == QSystemTrayIcon::Context) {
             // Правый клик - показываем контекстное меню
             return;
@@ -736,6 +794,55 @@ void SmartClipApp::rebuildMenu()
     if (quitAction) {
         trayMenu.addAction(quitAction);
     }
+
+    // Своё окно держим в актуальном состоянии вместе с меню.
+    refreshTrayPopup();
+}
+
+void SmartClipApp::refreshTrayPopup()
+{
+    if (!trayPopup)
+        return;
+
+    // Цвет темы подхватываем системную (для ОКОН: 'default' = светлая).
+    trayPopup->setDarkMode(windowPrefersDark());
+
+    QVector<TrayPopup::RowData> rows;
+    const auto &history = historyManager->history();
+    rows.reserve(history.size());
+    for (const auto &item : history) {
+        TrayPopup::RowData r;
+        r.text = item.text;
+        r.display = item.maskInMenu ? maskForMenuDisplay(item.text) : item.text;
+        r.display.replace(QLatin1Char('\n'), QLatin1Char(' '));
+        if (r.display.size() > 90)
+            r.display = r.display.left(87) + QStringLiteral("\u2026");
+        if (!item.comment.isEmpty())
+            r.display += QStringLiteral(" \u2014 ") + item.comment;
+        r.masked = item.maskInMenu;
+        if (item.favoriteColorIndex >= 0) {
+            r.favorite = true;
+            r.color = (item.favoriteColorIndex <= 32)
+                          ? favoriteColors[item.favoriteColorIndex]
+                          : favoriteColors[32];
+        }
+        rows.push_back(r);
+    }
+    trayPopup->setRows(rows);
+}
+
+void SmartClipApp::showTrayPopup()
+{
+    if (!trayPopup)
+        return;
+    refreshTrayPopup();
+
+    // На GNOME SNI trayIcon.geometry() часто пуст; тогда открываемся у курсора.
+    const QRect g = trayIcon.geometry();
+    const QPoint anchor = (g.isValid() && !g.isEmpty())
+        ? QPoint(g.center().x(), g.bottom())
+        : QCursor::pos();
+    trayPopup->showAt(anchor);
 }
 
 QString SmartClipApp::settingsFilePath() const
@@ -833,6 +940,46 @@ bool SmartClipApp::desktopPrefersDark()
 #endif
 
     // 3) Последний фолбэк — яркость палитры окна.
+    return qApp->palette().color(QPalette::Window).lightness() < 128;
+}
+
+bool SmartClipApp::windowPrefersDark()
+{
+    // Для ОКОН (не иконки на панели). Qt 6.5+ знает схему точно — доверяем.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+    if (QStyleHints *h = qApp->styleHints()) {
+        if (h->colorScheme() == Qt::ColorScheme::Dark)
+            return true;
+        if (h->colorScheme() == Qt::ColorScheme::Light)
+            return false;
+    }
+#endif
+
+#if defined(Q_OS_LINUX)
+    auto readStr = [](const QString &prog, const QStringList &args) -> QString {
+        QProcess p;
+        p.start(prog, args);
+        if (!p.waitForFinished(1500))
+            return QString();
+        return QString::fromUtf8(p.readAllStandardOutput()).trimmed();
+    };
+    const QString scheme = readStr("gsettings",
+        {"get", "org.gnome.desktop.interface", "color-scheme"});
+    if (scheme.contains("prefer-dark"))
+        return true;
+    // ВАЖНО: 'default' для окон — это светлая тема (не тёмная, в отличие от
+    // верхней панели GNOME). Ненавязчиво проверяем тёмную GTK-тему по имени.
+    if (scheme.contains("prefer-light") || scheme.contains("default")) {
+        const QString gtk = readStr("gsettings",
+            {"get", "org.gnome.desktop.interface", "gtk-theme"});
+        return gtk.toLower().contains("dark");
+    }
+    const QString gtk = readStr("gsettings",
+        {"get", "org.gnome.desktop.interface", "gtk-theme"});
+    if (gtk.toLower().contains("dark"))
+        return true;
+#endif
+
     return qApp->palette().color(QPalette::Window).lightness() < 128;
 }
 

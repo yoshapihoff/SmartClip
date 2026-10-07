@@ -17,6 +17,7 @@ class HistoryManager;
 class LaunchAgentManager;
 class MqttClient;
 class SyncManager;
+class TrayPopup;
 
 class SmartClipApp final : public QObject
 {
@@ -48,6 +49,12 @@ private:
     void rebuildMenu();
     /** Тема рабочего стола: true — тёмная (значит иконку трея надо светлую). */
     static bool desktopPrefersDark();
+    /**
+     * Тема для ОКОН приложения (отличается от desktopPrefersDark: там
+     * решение принимается для иконки на ВЕРХНЕЙ ПАНЕЛИ GNOME, которая
+     * всегда тёмная; для окон 'default' ≠ тёмная).
+     */
+    static bool windowPrefersDark();
     /** Сразу сохранить историю (избранное/маски) — чтобы пережило перезапуск. */
     void persistHistory();
     /** Переключить маскировку пункта (пароль) и сразу сохранить. */
@@ -62,6 +69,15 @@ private:
 
     QSystemTrayIcon trayIcon;
     QMenu trayMenu;
+
+    // СВОЁ окно вместо меню десктопа (по умолчанию; отключается
+    // SMARTCLIP_NO_TRAY_POPUP=1). Даёт контроль над видом/отступами.
+    TrayPopup *trayPopup = nullptr;
+    bool trayPopupEnabled = false;
+    /** Собрать строки для попапа из истории и показать окно у иконки. */
+    void showTrayPopup();
+    /** Пересобрать содержимое попапа (если он включён). */
+    void refreshTrayPopup();
 
     bool ignoreNextClipboardChange = false;
     QString lastClipboardText;
