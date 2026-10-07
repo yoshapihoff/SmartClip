@@ -31,7 +31,7 @@ struct Palette {
 Palette lightPalette()
 {
     return {QStringLiteral("#fafafb"), QStringLiteral("#e6e6eb"),
-            QStringLiteral("#78787b"), QStringLiteral("#222226"),
+            QStringLiteral("#66666e"), QStringLiteral("#222226"),
             QStringLiteral("#ececf0"), QStringLiteral("#3584e4"),
             QStringLiteral("#ffffff"), QStringLiteral("#9a9aa0"),
             QStringLiteral("#e62d42"), QStringLiteral("#e6e6eb"),
@@ -41,7 +41,7 @@ Palette lightPalette()
 Palette darkPalette()
 {
     return {QStringLiteral("#2b2b30"), QStringLiteral("#3a3a41"),
-            QStringLiteral("#a8a8b0"), QStringLiteral("#f2f2f5"),
+            QStringLiteral("#b8b8c0"), QStringLiteral("#f2f2f5"),
             QStringLiteral("#3a3a41"), QStringLiteral("#3584e4"),
             QStringLiteral("#ffffff"), QStringLiteral("#9a9aa0"),
             QStringLiteral("#ff6b6b"), QStringLiteral("#3a3a41"),
@@ -252,7 +252,7 @@ void TrayPopup::applyStyle()
         }
         #title { color: %3; font-size: 11px; padding: 2px 8px; }
         #empty { color: %5; padding: 18px 8px; }
-        #sep { color: %11; }
+        #sep { color: %10; }
         #scroll { background: transparent; border: none; }
         #rowsHost { background: transparent; }
 
@@ -269,10 +269,12 @@ void TrayPopup::applyStyle()
         QToolButton#rowAction:hover { background: %6; }
         QToolButton#rowAction:checked { background: %7; }
 
-        QScrollBar:vertical { width: 6px; background: transparent; margin: 0; }
+        QScrollBar:vertical { width: 8px; background: transparent; margin: 0; }
         QScrollBar::handle:vertical {
-            background: %6; border-radius: 3px; min-height: 20px;
+            background: %5; border-radius: 4px; min-height: 24px;
+            min-width: 8px;
         }
+        QScrollBar::handle:vertical:hover { background: %4; }
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
     )")
     .arg(p.cardBg, p.cardBorder, p.titleFg, p.itemFg, p.muted, p.itemHover,
