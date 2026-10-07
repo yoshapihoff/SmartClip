@@ -1,0 +1,117 @@
+name: release
+
+# Кросс-платформенная сборка релизных артефактов SmartClip на раннерах GitHub.
+# Нужна прежде всего для macOS: .app с вложенными библиотеками (macdeployqt)
+# собирается ТОЛЬКО на macOS, на Linux это невозможно.
+#
+# Версия — из файла VERSION (авто-бамп patch на каждый коммит через
+# .githooks/pre-commit), тег релиза — v<version>. Релиз обновляется на каждый
+# push в main.
+#
+# Если репозиторий не используется через GitHub — macOS-артефакт можно получить
+# и локально на маке: scripts/release-macos.sh.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TAG_PREFIX: v
+
+jobs:
+  linux:
+    name: Linux artifacts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build dependencies (Qt6 + OpenSSL)
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+              cmake ninja-build g++ pkg-config \
+              libssl-dev qt6-base-dev qt6-svg-dev \
+              libgl1-mesa-dev libxkbcommon-dev
+          sudo apt-get install -y --no-install-recommends qt6-mqtt-dev || \
+              echo "Qt6 MQTT недоступен — собираю без синка"
+
+      - name: Read version
+        id: v
+        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Build release artifacts
+        run: scripts/release-linux.sh --jobs "$(nproc)"
+        env:
+          SMARTCLIP_TOOLS_DIR: ${{ runner.temp }}/smartclip-tools
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smartclip-linux-${{ steps.v.outputs.version }}
+          path: dist/release-${{ steps.v.outputs.version }}/*
+          if-no-files-found: error
+
+  macos:
+    name: macOS artifacts (.app + deps)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build dependencies (Homebrew Qt6 + OpenSSL)
+        run: |
+          set -eux
+          brew install cmake openssl@3 qt
+          # QtMqtt в brew-формуле 'qt' отсутствует. Если задан секрет
+          # QT_MACOS_PREFIX (префикс Qt Online Installer с модулем Mqtt),
+          # сборка включит сетевую синхронизацию; иначе — без неё.
+          echo "QT_PATH=${QT_MACOS_PREFIX:-}" >> "$GITHUB_ENV"
+
+      - name: Read version
+        id: v
+        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Build release artifacts (.app + zip + dmg)
+        env:
+          QT_MACOS_PREFIX: ${{ secrets.QT_MACOS_PREFIX }}
+        run: scripts/release-macos.sh --jobs "$(sysctl -n hw.ncpu)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smartclip-macos-${{ steps.v.outputs.version }}
+          path: dist/release-${{ steps.v.outputs.version }}/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs: [linux, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Read version
+        id: v
+        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Create/update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="${TAG_PREFIX}${VERSION}"
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --title "SmartClip $VERSION" \
+              --notes "Релиз SmartClip $VERSION (автосборка CI)."
+          # --clobber перезаписывает одноимённые ассеты (идемпотентность).
+          gh release upload "$TAG" artifacts/* --clobber

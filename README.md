@@ -281,8 +281,8 @@ make test                  # тесты (offscreen)
 ## Версионирование
 
 Версия хранится в файле **`VERSION`** в корне проекта — это единственный
-источник правды. Формат — `MAJOR.MINOR.PATCH` (SemVer), текущая версия —
-**1.0.0**.
+источник правды. Формат — `MAJOR.MINOR.PATCH` (SemVer). Текущую версию
+смотри в самом файле `VERSION` (стартовая была **1.0.0**).
 
 Схема:
 
@@ -334,6 +334,70 @@ scripts/bump-version.sh --set 1.2.3
 > Хук срабатывает только там, где включён `core.hooksPath` (это локальная
 > настройка). Поэтому схемы совместимы: где хуки не включены — версия бампается
 > вручную (`make bump`).
+
+## Релизные артефакты
+
+Артефакты собираются **в папке `dist/release-<version>/`**, где `<version>`
+берётся из файла `VERSION`. То есть обновил версию (например, patch-бампом на
+коммите) — собрал релиз — получил комплект с этой версией в имени и в метаданных.
+
+| Платформа | Артефакт | Что это |
+|-----------|----------|---------|
+| Linux | `SmartClip-<ver>-x86_64.AppImage` | «образ»: самодостаточный, без установки и без системного Qt |
+| Linux | `smartclip_<ver>_amd64.deb` | инсталлятор Debian/Ubuntu (`dpkg -i`) |
+| Linux | `SmartClip-<ver>-linux-x86_64.tar.gz` | портативный архив (бинарник + .desktop + иконка) |
+| macOS | `SmartClip-<ver>-macos-<arch>.zip` | `.app` со **вложенными** Qt/OpenSSL (запуск без доп. установок) |
+| macOS | `SmartClip-<ver>-macos-<arch>.dmg` | то же в виде образa-установщика (если доступен `hdiutil`) |
+| обе | `SHA256SUMS` | контрольные суммы |
+
+### Linux
+
+```bash
+make release-linux        # или: scripts/release-linux.sh
+# → dist/release-<version>/…
+```
+
+Что делает: собирает бинарник (Release) → AppImage → `.deb` → `.tar.gz` →
+`SHA256SUMS`. AppImage паковывается `linuxdeploy`+`linuxdeploy-plugin-qt`
+(скачиваются в кэш автоматически).
+
+Отдельные цели: `make appimage`, `make deb` (только `.deb` из готового бинарника).
+
+> **Стек:** Qt6 (Widgets/Svg/Network/DBus; MQTT — опционально) + OpenSSL 3.
+> AppImage несёт зависимости внутри. `.deb` ставит бинарник в `/usr/bin` и
+> тянет системный Qt6/OpenSSL (`Depends`). Для «дистрибутивного» `.deb` лучше
+> собирать на Debian/Ubuntu (или в CI-образе с системным Qt6).
+
+### macOS (требует macOS)
+
+```bash
+make release-macos        # или: scripts/release-macos.sh   (только на macOS)
+```
+
+`.app` с вложенными библиотеками собирается через `macdeployqt` с последующей
+санитарией `rpath` и ad-hoc подписью — запускается на машине **без** Qt/OpenSSL.
+Далее — `.zip` через `ditto` и `.dmg` через `hdiutil`.
+
+> **Почему только на macOS:** `macdeployqt`, `otool`, `install_name_tool`,
+> `codesign`, `hdiutil` — это инструменты Apple. На Linux `.app` с вложенными
+> dylib не собрать. Варианты: локально на маке **или** macOS-раннер в CI.
+
+### CI
+
+Сборка привязана к версии и запускается на push в `main`
+(т.е. на каждый patch-бамп, см. «Версионирование»):
+
+- **Linux** — `.forgejo/workflows/release.yml` (self-hosted Forgejo Actions)
+  и `.github/workflows/release.yml` (ubuntu-24.04).
+- **macOS** — `.github/workflows/release.yml` (раннер `macos-14`; brew Qt6+OpenSSL,
+  затем `scripts/release-macos.sh`).
+- Оба варианта прикрепляют артефакты к релизу с тегом `v<version>`
+  (Linux — в Forgejo, macOS — в GitHub).
+
+> **QtMqtt:** ни в `qt6-base-dev`, ни в brew-формуле `qt` модуля Mqtt нет.
+> В CI он ставится best-effort (Linux `qt6-mqtt-dev`) или через секрет
+> `QT_MACOS_PREFIX` (путь к Qt Online Installer с модулем Mqtt). Без него
+> приложение собирается и работает, просто без сетевой синхронизации.
 
 ## Тестирование
 

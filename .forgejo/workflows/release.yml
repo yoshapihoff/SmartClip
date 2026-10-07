@@ -1,0 +1,93 @@
+name: release
+
+# Сборка релизных артефактов SmartClip при обновлении версии (push в main).
+#
+# Версия берётся из файла VERSION (который авто-бампается pre-commit-хуком на
+# каждый коммит), поэтому каждый push в main приносит новую версию → новый релиз.
+# Артефакты прикрепляются к релизу с тегом v<version> в Forgejo.
+#
+# Раннер: Linux (self-hosted Forgejo Actions). macOS-сборка с зависимостями
+# выполняется на macOS-раннере GitHub — см. .github/workflows/release.yml.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build dependencies (Qt6 + OpenSSL)
+        run: |
+          set -eux
+          sudo apt-get update
+          # Базовые (обязательные): Qt6 Widgets/Svg/Network/DBus + OpenSSL.
+          sudo apt-get install -y --no-install-recommends \
+              cmake ninja-build g++ pkg-config \
+              libssl-dev \
+              qt6-base-dev qt6-svg-dev \
+              libgl1-mesa-dev libxkbcommon-dev
+          # MQTT — опционален (синк можно выключить). Если пакета нет, сборка
+          # всё равно пройдёт: CMake выдаст WARNING и соберёт без синка.
+          sudo apt-get install -y --no-install-recommends qt6-mqtt-dev || \
+              echo "Qt6 MQTT недоступен — собираю без сетевой синхронизации"
+
+      - name: Read version
+        id: v
+        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Build release artifacts
+        run: scripts/release-linux.sh --jobs "$(nproc)"
+        env:
+          SMARTCLIP_TOOLS_DIR: ${{ runner.temp }}/smartclip-tools
+
+      - name: Upload artifacts (workflow)
+        uses: actions/upload-artifact@v4
+        with:
+          name: smartclip-linux-${{ steps.v.outputs.version }}
+          path: dist/release-${{ steps.v.outputs.version }}/*
+          if-no-files-found: error
+
+      - name: Publish release to Forgejo
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="v$VERSION"
+          API="https://git.halfpi.ru/api/v1/repos/mario/smartclip/releases"
+          DIR="dist/release-$VERSION"
+
+          EXISTING=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://git.halfpi.ru/api/v1/repos/mario/smartclip/releases/tags/$TAG" \
+            | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('id',''))" 2>/dev/null || echo "")
+
+          if [ -n "$EXISTING" ]; then
+            RELEASE_ID="$EXISTING"
+            echo "релиз $TAG уже есть (id=$RELEASE_ID) — обновляю ассеты"
+          else
+            RELEASE_ID=$(curl -s -H "Authorization: token $GH_TOKEN" -H "Content-Type: application/json" \
+              -X POST "$API" \
+              -d "{\"tag_name\":\"$TAG\",\"name\":\"SmartClip $VERSION\",\"body\":\"Релиз SmartClip $VERSION. Собрано из main ($GITHUB_SHA).\",\"draft\":false,\"prerelease\":false,\"target_commitish\":\"main\"}" \
+              | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['id'])")
+            echo "создан релиз $TAG (id=$RELEASE_ID)"
+          fi
+
+          for f in "$DIR"/*; do
+            name="$(basename "$f")"
+            # Удаляем прежний ассет с тем же именем (идемпотентность).
+            curl -s -H "Authorization: token $GH_TOKEN" "$API/$RELEASE_ID/assets?name=$name" \
+              | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))" 2>/dev/null \
+              | while read -r aid; do [ -n "$aid" ] && curl -s -X DELETE -H "Authorization: token $GH_TOKEN" "$API/$RELEASE_ID/assets/$aid" >/dev/null; done || true
+            curl -s -o /dev/null -w "asset $name: HTTP %{http_code}\n" \
+              -H "Authorization: token $GH_TOKEN" \
+              -F "attachment=@$f" "$API/$RELEASE_ID/assets?name=$name"
+          done

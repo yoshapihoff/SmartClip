@@ -281,6 +281,31 @@ dist: appimage
 	@echo "=== Артефакт в dist/ ==="
 	@ls -lh dist/ 2>/dev/null || echo "(пусто)"
 
+# =========================
+# Release: сборка артефактов, привязанных к VERSION
+# =========================
+# Артефакты едут в dist/release-<version>/. Версия — из файла VERSION.
+.PHONY: release release-linux release-macos deb
+
+release-linux:
+	@./scripts/release-linux.sh
+
+release-macos:
+	@./scripts/release-macos.sh
+
+deb:
+	@./scripts/package-deb.sh
+
+# Универсальная цель: собирает под текущую ОС.
+release:
+ifeq ($(PLATFORM),linux)
+	@./scripts/release-linux.sh
+else ifeq ($(PLATFORM),macos)
+	@./scripts/release-macos.sh
+else
+	@echo "release поддерживается на Linux и macOS"
+endif
+
 linux-install:
 	@./scripts/install-linux.sh --prefix $(PREFIX)
 
