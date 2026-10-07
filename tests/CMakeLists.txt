@@ -2,6 +2,15 @@ cmake_minimum_required(VERSION 3.16)
 
 project(SmartClipTests)
 
+# Версия приложения лежит в корневом файле VERSION. tests/ вызывает свой
+# project(), поэтому PROJECT_VERSION здесь пуст — читаем файл напрямую.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION")
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION" SMARTCLIP_VERSION_RAW LIMIT_COUNT 1)
+    string(STRIP "${SMARTCLIP_VERSION_RAW}" SMARTCLIP_VERSION)
+else()
+    set(SMARTCLIP_VERSION "0.0.0")
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -84,6 +93,17 @@ target_link_libraries(LaunchAgentManagerTest
         Qt6::Test
 )
 
+qt_add_executable(VersionTest
+    VersionTest.cpp
+)
+
+target_compile_definitions(VersionTest PRIVATE SMARTCLIP_VERSION="${SMARTCLIP_VERSION}")
+
+target_link_libraries(VersionTest
+    PRIVATE
+        Qt6::Test
+)
+
 qt_add_executable(SmartClipAppTest
     SmartClipAppTest.cpp
     ${CMAKE_SOURCE_DIR}/SmartClipApp.cpp
@@ -115,6 +135,7 @@ if(Qt6Mqtt_FOUND)
     target_compile_definitions(SmartClipAppTest PRIVATE SMARTCLIP_HAVE_MQTT)
 endif()
 
+add_test(NAME VersionTest COMMAND VersionTest)
 add_test(NAME SettingsDialogTest COMMAND SettingsDialogTest)
 add_test(NAME HistoryManagerTest COMMAND HistoryManagerTest)
 add_test(NAME LaunchAgentManagerTest COMMAND LaunchAgentManagerTest)

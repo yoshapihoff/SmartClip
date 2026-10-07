@@ -202,6 +202,20 @@ clean:
 	@echo "=== Cleaning $(BUILD_DIR) ==="
 	rm -rf $(BUILD_DIR)
 
+# =========================
+# Версионирование
+# =========================
+# Включить git-хуки репозитория (авто-patch-бамп версии перед коммитом).
+.PHONY: hooks
+hooks:
+	git config core.hooksPath .githooks
+	@echo "Git-хуки включены (core.hooksPath=.githooks). Версия бампается автоматически: патч на каждый коммит."
+
+# Ручной бамп: make bump (patch) | make bump PART=minor | make bump PART=major
+.PHONY: bump
+bump:
+	@scripts/bump-version.sh $(if $(PART),$(PART),patch)
+
 rebuild: clean build
 
 install: build

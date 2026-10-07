@@ -278,6 +278,63 @@ make test                  # тесты (offscreen)
 общий секрет (задаётся одинаково на всех устройствах, **отдельно** от пароля
 брокера), `Role` и `Room` — одинаковые для устройств одной группы.
 
+## Версионирование
+
+Версия хранится в файле **`VERSION`** в корне проекта — это единственный
+источник правды. Формат — `MAJOR.MINOR.PATCH` (SemVer), текущая версия —
+**1.0.0**.
+
+Схема:
+
+- **PATCH** (третья цифра) — инкрементится автоматически на **каждый обычный
+  коммит**: `1.0.0 → 1.0.1 → 1.0.2 → …`
+- **MINOR** (средняя цифра) и **MAJOR** (старшая) — меняются **только по явному
+  указанию** (вручную или переменной окружения), когда это понадобится:
+  `1.0.5 → 1.1.0` (minor), `1.4.2 → 2.0.0` (major).
+
+Как это работает технически: CMake читает `VERSION` до `project()`, поэтому
+`PROJECT_VERSION` совпадает с файлом; версия прокидывается в код через
+`SMARTCLIP_VERSION` (см. `Version.h`), показывается в справке (Help) и в
+подсказке трея, и задаёт `CFBundleShortVersionString`/`CFBundleVersion` для
+macOS-бандла.
+
+### Авто-бамп на коммитах (git-хук)
+
+В репозитории лежит хук `.githooks/pre-commit`, который перед каждым коммитом
+инкрементит PATCH и добавляет `VERSION` в коммит. Включить один раз:
+
+```bash
+make hooks        # git config core.hooksPath .githooks
+git config core.hooksPath .githooks   # то же вручную
+```
+
+Управление (переменные окружения для конкретного коммита):
+
+```bash
+SMARTCLIP_NO_BUMP=1 git commit ...        # не бампать этот коммит
+git commit ...                            # обычный коммит -> patch
+SMARTCLIP_BUMP=minor git commit ...       # поднять среднюю цифру
+SMARTCLIP_BUMP=major git commit ...       # поднять старшую цифру
+```
+
+### Ручной бамп
+
+```bash
+make bump              # patch: 1.0.0 -> 1.0.1
+make bump PART=minor   # minor: 1.0.0 -> 1.1.0
+make bump PART=major   # major: 1.0.0 -> 2.0.0
+
+# или напрямую:
+scripts/bump-version.sh            # patch
+scripts/bump-version.sh minor      # 1.1.0
+scripts/bump-version.sh major      # 2.0.0
+scripts/bump-version.sh --set 1.2.3
+```
+
+> Хук срабатывает только там, где включён `core.hooksPath` (это локальная
+> настройка). Поэтому схемы совместимы: где хуки не включены — версия бампается
+> вручную (`make bump`).
+
 ## Тестирование
 
 ```bash
@@ -305,9 +362,13 @@ master/slave: usage=max, LWW по меткам правки для mask/comment/
 ```
 .
 ├── CMakeLists.txt          # Основной CMake
+├── VERSION                 # Версия приложения (единственный источник правды)
+├── Version.h               # C++-обёртка над версией (SMARTCLIP_VERSION_STRING)
+├── .githooks/pre-commit    # Авто-бамп patch-версии перед коммитом
 ├── Makefile                # Удобные цели (обёртки над scripts/)
 ├── scripts/                # Сборка/установка/упаковка (build-linux, install-linux,
-│                           #   uninstall-linux, build-appimage, build-macos, lib.sh)
+│                           #   uninstall-linux, build-appimage, build-macos,
+│                           #   bump-version.sh, lib.sh)
 ├── docs/                   # Гайды по сборке (BUILD-LINUX/MACOS)
 ├── assets/
 │   └── smartclip.desktop   # Linux: интеграция в DE

@@ -2,6 +2,7 @@
 #include "SettingsManager.h"
 #include "SettingsDialog.h"
 #include "HelpDialog.h"
+#include "Version.h"
 #include "HistoryManager.h"
 #include "LaunchAgentManager.h"
 #include "Crypto.h"
@@ -158,7 +159,7 @@ SmartClipApp::SmartClipApp(QObject *parent)
     rebuildMenu();
 
     trayIcon.setContextMenu(&trayMenu);
-    trayIcon.setToolTip("SmartClip");
+    trayIcon.setToolTip(QString("SmartClip %1").arg(SMARTCLIP_VERSION_STRING));
     
     // Обработчик правого клика для переключения избранного
     connect(&trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {

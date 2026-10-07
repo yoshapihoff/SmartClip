@@ -1,4 +1,5 @@
 #include "HelpDialog.h"
+#include "Version.h"
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QPushButton>
@@ -35,7 +36,8 @@ void HelpDialog::setupUI()
     outerLayout->addWidget(scroll, 1);
 
     // --- Заголовок ---
-    QLabel *titleLabel = new QLabel("SmartClip — quick reference", this);
+    QLabel *titleLabel = new QLabel(
+        QString("SmartClip %1 — quick reference").arg(SMARTCLIP_VERSION_STRING), this);
     QFont titleFont = titleLabel->font();
     titleFont.setPointSize(titleFont.pointSize() + 4);
     titleFont.setBold(true);

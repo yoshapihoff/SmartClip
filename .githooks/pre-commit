@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Авто-бамп версии SmartClip перед каждым коммитом.
+#
+# Схема: обычный коммит инкрементит PATCH (третью цифру версии). MINOR/MAJOR —
+# только по явному указанию (см. ниже).
+#
+# Управление:
+#   SMARTCLIP_NO_BUMP=1          пропустить бамп для этого коммита
+#   SMARTCLIP_BUMP=minor|major   бампнуть среднюю/старшую цифру
+#
+# Активация хуков в репозитории (один раз):
+#   git config core.hooksPath .githooks
+# (или: make hooks)
+set -euo pipefail
+
+[ "${SMARTCLIP_NO_BUMP:-0}" = "1" ] && exit 0
+
+# Не трогаем версию, если она уже правится вручную в этом же коммите.
+if git diff --cached --name-only | grep -qx "VERSION"; then
+    exit 0
+fi
+
+root="$(git rev-parse --show-toplevel)"
+[ -f "$root/VERSION" ] || exit 0
+
+"$root/scripts/bump-version.sh" "${SMARTCLIP_BUMP:-patch}" --quiet
+git -C "$root" add VERSION
+exit 0
