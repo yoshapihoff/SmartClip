@@ -1,12 +1,15 @@
 name: release
 
 # Кросс-платформенная сборка релизных артефактов SmartClip на раннерах GitHub.
-# Нужна прежде всего для macOS: .app с вложенными библиотеками (macdeployqt)
-# собирается ТОЛЬКО на macOS, на Linux это невозможно.
+#
+# Политика по macOS (решение Лёши 07.10.2026): macOS-артефакты в релиз
+# АВТОМАТИЧЕСКИ не публикуются. Пуш в main собирает и публикует только Linux-
+# артефакты; macOS (.app/.zip/.dmg) Лёша добавляет к релизу ВРУЧНУЮ. Собрать
+# macOS-комплект в CI при необходимости можно вручную: Actions → release →
+# "Run workflow" (workflow_dispatch) — тогда джоба macos тоже запустится.
 #
 # Версия — из файла VERSION (авто-бамп patch на каждый коммит через
-# .githooks/pre-commit), тег релиза — v<version>. Релиз обновляется на каждый
-# push в main.
+# .githooks/pre-commit), тег релиза — v<version>.
 #
 # Если репозиторий не используется через GitHub — macOS-артефакт можно получить
 # и локально на маке: scripts/release-macos.sh.
@@ -61,6 +64,10 @@ jobs:
 
   macos:
     name: macOS artifacts (.app + deps)
+    # Только по ручному запуску (workflow_dispatch). При пуше в main джоба
+    # пропускается — macOS-артефакты Лёша добавляет к релизу вручную
+    # (решение 07.10.2026).
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -131,8 +138,8 @@ jobs:
   publish:
     name: Publish GitHub release
     needs: [linux, macos]
-    # Публикуем, если Linux-сборка прошла — даже если macOS споткнулся
-    # (тогда релиз будет с Linux-артефактами, без macOS).
+    # Публикуем, если Linux-сборка прошла — macOS при обычном пуше пропущен
+    # (skipped), а при ручном запуске, если собрался, добавится к релизу.
     if: ${{ !cancelled() && needs.linux.result == 'success' }}
     runs-on: ubuntu-latest
     steps:

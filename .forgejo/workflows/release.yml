@@ -6,8 +6,10 @@ name: release
 # каждый коммит), поэтому каждый push в main приносит новую версию → новый релиз.
 # Артефакты прикрепляются к релизу с тегом v<version> в Forgejo.
 #
-# Раннер: Linux (self-hosted Forgejo Actions). macOS-сборка с зависимостями
-# выполняется на macOS-раннере GitHub — см. .github/workflows/release.yml.
+# Раннер: Linux (self-hosted Forgejo Actions). Здесь собираются только Linux-
+# артефакты. macOS-сборка (в GitHub Actions) запускается ТОЛЬКО вручную
+# (workflow_dispatch) и автоматически в релиз не публикуется — Лёша добавляет
+# macOS-артефакты вручную (решение 07.10.2026).
 
 on:
   push:
