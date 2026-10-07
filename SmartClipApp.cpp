@@ -241,11 +241,15 @@ SmartClipApp::SmartClipApp(QObject *parent)
     // Обработчик кликов по иконке трея
     connect(&trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
         if (trayPopupEnabled && trayPopup) {
-            // Своё окно: открываем по любой активации (ЛКМ/ПКМ/средний),
-            // встаём рядом с иконкой (или у курсора, если геометрия пуста —
+            // Своё окно: по активации иконки — ТОГГЛ. Если попап уже открыт,
+            // повторный клик прячет его (как обычное меню), другой клик — снова
+            // показывает рядом с иконкой (или у курсора, если геометрия пуста —
             // на GNOME SNI trayIcon.geometry() может быть (0,0 0x0)).
             (void)reason;
-            showTrayPopup();
+            if (trayPopup->isVisible())
+                trayPopup->hide();
+            else
+                showTrayPopup();
             return;
         }
         if (reason == QSystemTrayIcon::Context) {
