@@ -82,11 +82,14 @@ jobs:
             else
               # Официальный Qt через aqtinstall: brew-формула 'qt' разбита на
               # keg'и, и macdeployqt на ней падает (QtPdf/QtVirtualKeyboard/…).
-              python3 -m pip install --user aqtinstall
+              # Венв: системный Python — PEP-668 (externally-managed).
+              python3 -m venv "$RUNNER_TEMP/aqt-venv"
+              "$RUNNER_TEMP/aqt-venv/bin/pip" install --quiet --upgrade pip aqtinstall
+              AQT="$RUNNER_TEMP/aqt-venv/bin/aqt"
               QT_DIR="$RUNNER_TEMP/Qt"; QT_VER=6.8.1
-              python3 -m aqt install-qt mac desktop "$QT_VER" clang_64 \
+              "$AQT" install-qt mac desktop "$QT_VER" clang_64 \
                   -m qtmqtt qtimageformats --outputdir "$QT_DIR" \
-                || python3 -m aqt install-qt mac desktop "$QT_VER" clang_64 --outputdir "$QT_DIR"
+                || "$AQT" install-qt mac desktop "$QT_VER" clang_64 --outputdir "$QT_DIR"
               echo "QT_PATH=$QT_DIR/$QT_VER/macos" >> "$GITHUB_ENV"
               ls "$QT_DIR/$QT_VER/macos/bin/macdeployqt"
             fi
