@@ -68,27 +68,33 @@ jobs:
           fetch-depth: 0
 
       - name: Install build dependencies (official Qt6 + OpenSSL)
+        # Best-effort: проблемы с macOS-зависимостями не валят весь workflow
+        # (Linux-артефакты и релиз важнее). Диагностика — в аннотации.
+        continue-on-error: true
         env:
           QT_MACOS_PREFIX: ${{ secrets.QT_MACOS_PREFIX }}
         run: |
-          set -eux
-          brew install cmake openssl@3
-          if [ -n "${QT_MACOS_PREFIX:-}" ]; then
-            # Если задан секрет с префиксом Qt Online Installer — берём его.
-            echo "QT_PATH=$QT_MACOS_PREFIX" >> "$GITHUB_ENV"
-          else
-            # Иначе ставим ОФИЦИАЛЬНЫЙ Qt через aqtinstall: brew-формула 'qt'
-            # разбита на keg'и, и macdeployqt на ней падает
-            # (QtPdf/QtVirtualKeyboard/libwebp и т.п.). aqt тянет комплект,
-            # где macdeployqt работает штатно, плюс опциональные модули.
-            python3 -m pip install --user aqtinstall
-            QT_DIR="$RUNNER_TEMP/Qt"; QT_VER=6.8.1
-            "$HOME/.local/bin/aqt" install-qt mac desktop "$QT_VER" clang_64 \
-                -m qtmqtt qtimageformats --outputdir "$QT_DIR" \
-              || "$HOME/.local/bin/aqt" install-qt mac desktop "$QT_VER" clang_64 --outputdir "$QT_DIR"
-            echo "QT_PATH=$QT_DIR/$QT_VER/macos" >> "$GITHUB_ENV"
-            ls "$QT_DIR/$QT_VER/macos/bin/macdeployqt"
-          fi
+          set +e
+          {
+            brew install cmake openssl@3
+            if [ -n "${QT_MACOS_PREFIX:-}" ]; then
+              echo "QT_PATH=$QT_MACOS_PREFIX" >> "$GITHUB_ENV"
+            else
+              # Официальный Qt через aqtinstall: brew-формула 'qt' разбита на
+              # keg'и, и macdeployqt на ней падает (QtPdf/QtVirtualKeyboard/…).
+              python3 -m pip install --user aqtinstall
+              QT_DIR="$RUNNER_TEMP/Qt"; QT_VER=6.8.1
+              python3 -m aqt install-qt mac desktop "$QT_VER" clang_64 \
+                  -m qtmqtt qtimageformats --outputdir "$QT_DIR" \
+                || python3 -m aqt install-qt mac desktop "$QT_VER" clang_64 --outputdir "$QT_DIR"
+              echo "QT_PATH=$QT_DIR/$QT_VER/macos" >> "$GITHUB_ENV"
+              ls "$QT_DIR/$QT_VER/macos/bin/macdeployqt"
+            fi
+          } >"$RUNNER_TEMP/macos-deps.log" 2>&1
+          st=$?
+          tail -25 "$RUNNER_TEMP/macos-deps.log"
+          [ "$st" -eq 0 ] || echo "::error::deps install failed ($st): $(tail -5 "$RUNNER_TEMP/macos-deps.log" | tr '\n' '|')"
+          exit 0
 
       - name: Read version
         id: v
