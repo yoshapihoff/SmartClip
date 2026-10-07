@@ -201,28 +201,33 @@ if [ "$DO_BUNDLE" -eq 1 ]; then
     # Mach-O файла в бандле.
     BUNDLE_MARK="/$(basename "$APP")/Contents/Frameworks/"
     log "Санитария install_name (абсолютные пути бандла → @rpath)…"
-    find "$APP/Contents" -type f -print0 2>/dev/null | while IFS= read -r -d '' m; do
+    # NB: под set -e нельзя присваивать результат «чистого» command substitution
+    # без защиты: `x="$(... | grep ... | head -1)"` вернёт ненулевой код, когда
+    # строк нет (нет LC_ID_DYLIB), и молча убьёт скрипт. Поэтому каждое извлечение
+    # заканчиваем `|| true`, а чтение зависимостей делаем через process
+    # substitution в while (там exit-статус не влияет на set -e).
+    while IFS= read -r -d '' m; do
         otool -L "$m" >/dev/null 2>&1 || continue   # только Mach-O
         chmod u+w "$m" 2>/dev/null || true
-        # 1) install-name (LC_ID_DYLIB) самого файла. Берём первую строку,
-        # начинающуюся с '/', без заголовка «файл:» — так надёжнее, чем
-        # предполагать наличие строки-заголовка.
-        idn="$(otool -D "$m" 2>/dev/null | grep -E '^/' | grep -v ':$' | head -1)"
+        # 1) install-name (LC_ID_DYLIB) самого файла
+        idn="$(otool -D "$m" 2>/dev/null | grep -E '^/' | grep -v ':$' | head -1 || true)"
+        idn="${idn:-}"
         case "$idn" in
             *"$BUNDLE_MARK"*)
-                "$INT" -id "@rpath/${idn#*$BUNDLE_MARK}" "$m" 2>/dev/null || true ;;
+                "$INT" -id "@rpath/${idn##*$BUNDLE_MARK}" "$m" 2>/dev/null || true ;;
         esac
         # 2) зависимости (LC_LOAD_DYLIB)
         while IFS= read -r dep; do
             case "$dep" in
                 *"$BUNDLE_MARK"*)
-                    "$INT" -change "$dep" "@rpath/${dep#*$BUNDLE_MARK}" "$m" 2>/dev/null || true ;;
+                    "$INT" -change "$dep" "@rpath/${dep##*$BUNDLE_MARK}" "$m" 2>/dev/null || true ;;
             esac
-        done < <(otool -L "$m" 2>/dev/null | tail -n +2 | awk '{print $1}')
+        done < <(otool -L "$m" 2>/dev/null | tail -n +2 | awk '{print $1}' || true)
         # 3) rpath на бандловые Frameworks (нужен всем: exe, плагинам, фреймворкам)
-        otool -l "$m" 2>/dev/null | grep -q '@executable_path/../Frameworks' || \
+        if ! otool -l "$m" 2>/dev/null | grep -q '@executable_path/../Frameworks'; then
             "$INT" -add_rpath "@executable_path/../Frameworks" "$m" 2>/dev/null || true
-    done
+        fi
+    done < <(find "$APP/Contents" -type f -print0 2>/dev/null || true)
 
     # Переподписываем ad-hoc (arm64 иначе откажется запускать изменённый
     # бинарник; install_name_tool ломает подпись).
