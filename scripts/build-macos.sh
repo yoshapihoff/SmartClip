@@ -170,7 +170,7 @@ if [ "$DO_BUNDLE" -eq 1 ]; then
         fi
         "$INT" -id "@rpath/$base" "$dest" 2>/dev/null || true
         while IFS= read -r m; do
-            otool -L "$m" 2>/dev/null | grep -q "$src" || continue
+            otool -L "$m" 2>/dev/null | grep -Fq "$src" || continue
             "$INT" -change "$src" "@rpath/$base" "$m" 2>/dev/null || true
         done < <(find "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/PlugIns" -type f 2>/dev/null)
     }

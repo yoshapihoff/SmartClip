@@ -81,7 +81,16 @@ jobs:
       - name: Build release artifacts (.app + zip + dmg)
         env:
           QT_MACOS_PREFIX: ${{ secrets.QT_MACOS_PREFIX }}
-        run: scripts/release-macos.sh --jobs "$(sysctl -n hw.ncpu)"
+        run: |
+          set +e
+          scripts/release-macos.sh --jobs "$(sysctl -n hw.ncpu)" 2>&1 \
+            | tee "$RUNNER_TEMP/macos-build.log"
+          st=${PIPESTATUS[0]}
+          if [ "$st" -ne 0 ]; then
+            echo "::error::release-macos.sh упал (exit $st). Последние строки ниже (см. также аннотации)."
+            tail -40 "$RUNNER_TEMP/macos-build.log" | sed 's/^/  /' | while IFS= read -r l; do echo "::error file=scripts/release-macos.sh::$l"; done
+          fi
+          exit "$st"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -114,11 +123,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.v.outputs.version }}
         run: |
-          set -euo pipefail
-          TAG="${TAG_PREFIX}${VERSION}"
-          ls -la artifacts || true
-          gh release view "$TAG" >/dev/null 2>&1 || \
-            gh release create "$TAG" --title "SmartClip $VERSION" \
-              --notes "Релиз SmartClip $VERSION (автосборка CI). Артефакты: Linux (AppImage/deb/tar.gz), macOS (.app со вложенными зависимостями)."
-          # --clobber перезаписывает одноимённые ассеты (идемпотентность).
-          gh release upload "$TAG" artifacts/* --clobber
+          set +e
+          ( set -euo pipefail
+            TAG="${TAG_PREFIX}${VERSION}"
+            ls -la artifacts || true
+            gh release view "$TAG" >/dev/null 2>&1 || \
+              gh release create "$TAG" --title "SmartClip $VERSION" \
+                --notes "Релиз SmartClip $VERSION (автосборка CI). Артефакты: Linux (AppImage/deb/tar.gz), macOS (.app со вложенными зависимостями)."
+            gh release upload "$TAG" artifacts/* --clobber
+          ) 2>&1 | tee "$RUNNER_TEMP/publish.log"
+          st=${PIPESTATUS[0]}
+          if [ "$st" -ne 0 ]; then
+            tail -40 "$RUNNER_TEMP/publish.log" | while IFS= read -r l; do echo "::error::$l"; done
+          fi
+          exit "$st"
