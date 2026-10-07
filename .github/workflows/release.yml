@@ -67,17 +67,28 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install build dependencies (Homebrew Qt6 + OpenSSL)
+      - name: Install build dependencies (official Qt6 + OpenSSL)
+        env:
+          QT_MACOS_PREFIX: ${{ secrets.QT_MACOS_PREFIX }}
         run: |
           set -eux
-          brew install cmake openssl@3 qt
-          # Доп. keg'и Qt (разбит на модули): macdeployqt иначе не находит
-          # фреймворки, которые тянут плагины. Best-effort.
-          brew install qtpdf webp 2>/dev/null || echo "необязательные keg'и не установлены"
-          # QtMqtt в brew-формуле 'qt' отсутствует. Если задан секрет
-          # QT_MACOS_PREFIX (префикс Qt Online Installer с модулем Mqtt),
-          # сборка включит сетевую синхронизацию; иначе — без неё.
-          echo "QT_PATH=${QT_MACOS_PREFIX:-}" >> "$GITHUB_ENV"
+          brew install cmake openssl@3
+          if [ -n "${QT_MACOS_PREFIX:-}" ]; then
+            # Если задан секрет с префиксом Qt Online Installer — берём его.
+            echo "QT_PATH=$QT_MACOS_PREFIX" >> "$GITHUB_ENV"
+          else
+            # Иначе ставим ОФИЦИАЛЬНЫЙ Qt через aqtinstall: brew-формула 'qt'
+            # разбита на keg'и, и macdeployqt на ней падает
+            # (QtPdf/QtVirtualKeyboard/libwebp и т.п.). aqt тянет комплект,
+            # где macdeployqt работает штатно, плюс опциональные модули.
+            python3 -m pip install --user aqtinstall
+            QT_DIR="$RUNNER_TEMP/Qt"; QT_VER=6.8.1
+            "$HOME/.local/bin/aqt" install-qt mac desktop "$QT_VER" clang_64 \
+                -m qtmqtt qtimageformats --outputdir "$QT_DIR" \
+              || "$HOME/.local/bin/aqt" install-qt mac desktop "$QT_VER" clang_64 --outputdir "$QT_DIR"
+            echo "QT_PATH=$QT_DIR/$QT_VER/macos" >> "$GITHUB_ENV"
+            ls "$QT_DIR/$QT_VER/macos/bin/macdeployqt"
+          fi
 
       - name: Read version
         id: v
