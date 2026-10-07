@@ -134,8 +134,19 @@ if [ "$DO_BUNDLE" -eq 1 ]; then
     MACDEPLOYQT="$QT_PREFIX/bin/macdeployqt"
     [ -x "$MACDEPLOYQT" ] || die "macdeployqt не найден в $QT_PREFIX/bin (нужен для --bundle)"
     log "Упаковка Qt/OpenSSL внутрь .app (macdeployqt)…"
+    # Homebrew делит Qt на отдельные keg'и (qtbase, qtsvg, qtpdf, …), и
+    # macdeployqt не находит по @rpath фреймворки вида QtPdf/QtVirtualKeyboardQml,
+    # которые тянут плагины. Отдаём ему пути всех keg'ов как -libpath.
+    MACDEPLOYQT_ARGS=()
+    if command -v brew >/dev/null 2>&1; then
+        for d in "$(brew --prefix)"/opt/*/lib "$(brew --prefix)"/lib; do
+            [ -d "$d" ] && MACDEPLOYQT_ARGS+=("-libpath=$d")
+        done
+    fi
+    [ -n "$QT_PREFIX" ] && MACDEPLOYQT_ARGS+=("-libpath=$QT_PREFIX/lib")
     "$MACDEPLOYQT" "$APP" -always-overwrite \
-        -executable="$APP/Contents/MacOS/$APP_NAME"
+        -executable="$APP/Contents/MacOS/$APP_NAME" \
+        ${MACDEPLOYQT_ARGS[@]+"${MACDEPLOYQT_ARGS[@]}"}
 
     # ── Санитария rpath ───────────────────────────────────────────────
     # Главный бинарник мог получить rpath на ИСХОДНЫЙ Qt — тогда при запуске
