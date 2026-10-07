@@ -58,10 +58,12 @@ log "[2/3] Проверка самодостаточности бандла…"
 bad=0
 while IFS= read -r f; do
     [ -f "$f" ] || continue
-    # Внешняя зависимость = абсолютный путь вне /usr/lib и /System
-    # (Homebrew/usr-local/Volumes/… должны быть вложены в бандл).
+    # Внешняя зависимость = абсолютный путь ВНЕ бандла и вне /usr/lib,
+    # /System (Homebrew/opt, /usr/local, /Volumes/Qt/…). Ссылки на файлы
+    # ВНУТРИ .app допустимы — sanitize переводит их в @rpath.
     ext="$(otool -L "$f" 2>/dev/null | tail -n +2 | awk '{print $1}' \
-           | grep -E '^/' | grep -vE '^/usr/lib/|^/System/' || true)"
+           | grep -E '^/' | grep -vE '^/usr/lib/|^/System/' \
+           | grep -vF "$APP/" || true)"
     if [ -n "$ext" ]; then
         warn "$(basename "$f") ссылается на внешние пути:"; echo "$ext" | sed 's/^/    /' >&2
         bad=1

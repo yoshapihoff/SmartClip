@@ -192,11 +192,36 @@ if [ "$DO_BUNDLE" -eq 1 ]; then
         [ -n "$src" ] || src="$(ls "$OPENSSL_PREFIX"/lib/$lib.dylib 2>/dev/null | head -1)"
         [ -n "$src" ] && { log "Вкладываю $(basename "$src")…"; bundle_dylib "$src"; }
     done
-    # Гарантируем rpath на Frameworks у плагинов (они грузят вложенные dylib).
-    for m in "$EXE" "$APP"/Contents/PlugIns/platforms/*.dylib; do
-        [ -f "$m" ] || continue
-        otool -l "$m" 2>/dev/null | grep -q '@executable_path/../Frameworks' && continue
-        "$INT" -add_rpath "@executable_path/../Frameworks" "$m" 2>/dev/null || true
+    # ── Полная санитария install_name: абсолютные пути ВНУТРИ бандла → @rpath ──
+    # macdeployqt (особенно с Qt из Online Installer) нередко прописывает
+    # фреймворкам и плагинам зависимости/install-name АБСОЛЮТНЫМ путём внутрь
+    # самого .app (…/SmartClip.app/Contents/Frameworks/…). На машине без этого
+    # пути запуск падает (dyld не находит библиотеку). Переписываем ВСЕ такие
+    # ссылки на @rpath и гарантируем rpath на бандловые Frameworks у каждого
+    # Mach-O файла в бандле.
+    BUNDLE_MARK="/$(basename "$APP")/Contents/Frameworks/"
+    log "Санитария install_name (абсолютные пути бандла → @rpath)…"
+    find "$APP/Contents" -type f -print0 2>/dev/null | while IFS= read -r -d '' m; do
+        otool -L "$m" >/dev/null 2>&1 || continue   # только Mach-O
+        chmod u+w "$m" 2>/dev/null || true
+        # 1) install-name (LC_ID_DYLIB) самого файла. Берём первую строку,
+        # начинающуюся с '/', без заголовка «файл:» — так надёжнее, чем
+        # предполагать наличие строки-заголовка.
+        idn="$(otool -D "$m" 2>/dev/null | grep -E '^/' | grep -v ':$' | head -1)"
+        case "$idn" in
+            *"$BUNDLE_MARK"*)
+                "$INT" -id "@rpath/${idn#*$BUNDLE_MARK}" "$m" 2>/dev/null || true ;;
+        esac
+        # 2) зависимости (LC_LOAD_DYLIB)
+        while IFS= read -r dep; do
+            case "$dep" in
+                *"$BUNDLE_MARK"*)
+                    "$INT" -change "$dep" "@rpath/${dep#*$BUNDLE_MARK}" "$m" 2>/dev/null || true ;;
+            esac
+        done < <(otool -L "$m" 2>/dev/null | tail -n +2 | awk '{print $1}')
+        # 3) rpath на бандловые Frameworks (нужен всем: exe, плагинам, фреймворкам)
+        otool -l "$m" 2>/dev/null | grep -q '@executable_path/../Frameworks' || \
+            "$INT" -add_rpath "@executable_path/../Frameworks" "$m" 2>/dev/null || true
     done
 
     # Переподписываем ad-hoc (arm64 иначе откажется запускать изменённый
@@ -213,10 +238,13 @@ if [ "$DO_BUNDLE" -eq 1 ]; then
     bad=0
     for f in "$APP/Contents/MacOS/$APP_NAME" "$APP"/Contents/Frameworks/*.dylib "$APP"/Contents/PlugIns/platforms/*.dylib; do
         [ -f "$f" ] || continue
-        # Всё вне /usr/lib и /System считается внешней зависимостью
-        # (Homebrew/usr-local/Volumes/…) — должно быть вложено в бандл.
+        # Внешняя зависимость = абсолютный путь ВНЕ самого бандла и вне
+        # /usr/lib, /System (Homebrew/opt, /usr/local, /Volumes/Qt/… — должны
+        # быть вложены). Ссылки на файлы ВНУТРИ .app допустимы (мы их перевели
+        # в @rpath, но на всякий случай не считаем ошибкой).
         ext="$(otool -L "$f" | tail -n +2 | awk '{print $1}' \
-               | grep -E '^/' | grep -vE '^/usr/lib/|^/System/' || true)"
+               | grep -E '^/' | grep -vE '^/usr/lib/|^/System/' \
+               | grep -vF "$APP/" || true)"
         if [ -n "$ext" ]; then
             warn "$(basename "$f") линкует внешние пути:"
             echo "$ext" | sed 's/^/    /' >&2
