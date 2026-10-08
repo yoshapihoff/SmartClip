@@ -2,21 +2,19 @@ name: release
 
 # Кросс-платформенная сборка релизных артефактов SmartClip на раннерах GitHub.
 #
+# РЕЛИЗЫ ТОЛЬКО ВРУЧНУЮ (решение Лёши 08.10.2026): workflow больше НЕ запускается
+# на push в main — релизы не создаются автоматически при каждом коммите.
+# Запуск: Actions → workflow "release" → "Run workflow" (workflow_dispatch).
+# Тогда собираются Linux- и macOS-артефакты из текущего main.
+#
 # Политика по macOS (решение Лёши 07.10.2026): macOS-артефакты в релиз
-# АВТОМАТИЧЕСКИ не публикуются. Пуш в main собирает и публикует только Linux-
-# артефакты; macOS (.app/.zip/.dmg) Лёша добавляет к релизу ВРУЧНУЮ. Собрать
-# macOS-комплект в CI при необходимости можно вручную: Actions → release →
-# "Run workflow" (workflow_dispatch) — тогда джоба macos тоже запустится.
+# АВТОМАТИЧЕСКИ не публикуются. macOS (.app/.zip/.dmg) Лёша добавляет к релизу
+# ВРУЧНУЮ. Собрать macOS-комплект локально на маке: scripts/release-macos.sh.
 #
 # Версия — из файла VERSION (авто-бамп patch на каждый коммит через
 # .githooks/pre-commit), тег релиза — v<version>.
-#
-# Если репозиторий не используется через GitHub — macOS-артефакт можно получить
-# и локально на маке: scripts/release-macos.sh.
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
