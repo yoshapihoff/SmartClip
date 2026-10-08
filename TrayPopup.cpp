@@ -47,6 +47,21 @@ Qt::WindowFlags popupWindowFlags()
         flags |= Qt::Popup;
     return flags;
 }
+
+/**
+ * Нужно ли закрывать окно по потере активности (WindowDeactivate),
+ * а не полагаться на штатный Qt::Popup с захватом мыши.
+ *
+ * Только Wayland(/XWayland): там qt::Popup не ловит клик мимо, зато есть
+ * своё закрытие. На X11 и macOS штатный Qt::Popup закрывает окно по клику
+ * вне САМ. Дублирующее закрытие по deactivate на macOS давало баг: после
+ * повторного клика по иконке трея попап показывался и через мгновение
+ * прятался (приходил отложенный WindowDeactivate/ApplicationDeactivate).
+ */
+bool popupReliesOnDeactivateHide()
+{
+    return qEnvironmentVariableIsSet("WAYLAND_DISPLAY");
+}
 } // namespace
 
 namespace {
@@ -746,11 +761,12 @@ bool TrayPopup::event(QEvent *event)
         }
     }
 
-    // Надёжное закрытие «как меню»: помимо штатного Qt::Popup (клик вне),
-    // прячем окно, когда оно теряет активность окна/приложения. На части
-    // Wayland/XWayland-сборок штатный захват мыши не срабатывает.
-    if (event->type() == QEvent::WindowDeactivate ||
-        event->type() == QEvent::ApplicationDeactivate) {
+    // Закрытие «как меню» по потере активности — ТОЛЬКО на Wayland
+    // (там Qt::Popup не ловит клик мимо). На X11 и macOS закрытие делает
+    // сам Qt::Popup; дублирующее закрытие ломало повторное открытие из трея.
+    if (popupReliesOnDeactivateHide() &&
+        (event->type() == QEvent::WindowDeactivate ||
+         event->type() == QEvent::ApplicationDeactivate)) {
         if (isVisible())
             hide();
     }

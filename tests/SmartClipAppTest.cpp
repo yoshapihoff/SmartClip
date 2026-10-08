@@ -57,6 +57,7 @@ private slots:
     void testTrayPopupClearDoesNotHide();
     void testTrayPopupRowActionDoesNotHide();
     void testTrayPopupWidthFitsContent();
+    void testTrayPopupDeactivateHideOnlyOnWayland();
 
 private:
     QApplication *m_app;
@@ -546,6 +547,32 @@ void TestSmartClipApp::testTrayPopupWidthFitsContent()
              "Ширина должна расти под более длинное содержимое");
     QVERIFY2(wShort >= 360,
              "Минимальная ширина — по футеру/заголовку");
+}
+
+// Скрытие по потере активности — ТОЛЬКО на Wayland. На X11/macOS попап
+// закрывает сам Qt::Popup, иначе повторный клик по иконке трея показывал
+// попап и тут же прятал его (баг на macOS).
+void TestSmartClipApp::testTrayPopupDeactivateHideOnlyOnWayland()
+{
+    TrayPopup popup;
+    popup.setRows({});
+
+    const bool wayland = qEnvironmentVariableIsSet("WAYLAND_DISPLAY");
+
+    popup.showAt(QPoint(200, 100));
+    QVERIFY(popup.isVisible());
+
+    // Имитируем потерю активности окна (как это делает WM/оболочка).
+    QEvent deactivate(QEvent::WindowDeactivate);
+    QCoreApplication::sendEvent(&popup, &deactivate);
+
+    if (wayland) {
+        QVERIFY2(!popup.isVisible(),
+                 "На Wayland попап должен прятаться по WindowDeactivate");
+    } else {
+        QVERIFY2(popup.isVisible(),
+                 "На X11/macOS попап НЕ должен прятаться по WindowDeactivate");
+    }
 }
 
 QTEST_MAIN(TestSmartClipApp)
