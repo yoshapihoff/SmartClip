@@ -95,6 +95,10 @@ public:
     }
     void setFullText(const QString &t) { m_text = t; update(); }
     void setMarker(const QColor &c) { m_marker = c; update(); }
+    // Явный цвет текста строки. Нужен потому, что QSS на #card/окне НЕ
+    // пробрасывает палитру в этот кастомный QWidget: в тёмной теме строки
+    // рисовались чёрным (палитра по умолчанию светлая). См. setRows().
+    void setTextColor(const QColor &c) { m_fg = c; update(); }
 
 signals:
     void clicked();
@@ -112,7 +116,7 @@ protected:
             p.setPen(Qt::NoPen);
             p.drawEllipse(QPointF(12, height() / 2.0), 4, 4);
         }
-        p.setPen(palette().color(QPalette::WindowText));
+        p.setPen(m_fg.isValid() ? m_fg : palette().color(QPalette::WindowText));
         const QFontMetrics fm(font());
         const int w = width() - left - 6;
         const QString el = fm.elidedText(m_text, Qt::ElideRight, qMax(0, w));
@@ -129,6 +133,7 @@ protected:
 private:
     QString m_text;
     QColor m_marker;
+    QColor m_fg;   // цвет текста (из темы попапа)
 };
 
 /** Контейнер строки: при наведении показывает кнопки-действия. */
@@ -435,6 +440,7 @@ void TrayPopup::setRows(const QVector<RowData> &rows)
     for (const RowData &r : rows) {
         auto *text = new ElidedLabel(m_card);
         text->setFullText(r.display);
+        text->setTextColor(QColor(p.itemFg));
         if (r.favorite && r.color.isValid())
             text->setMarker(r.color);
         connect(text, &ElidedLabel::clicked, this, [this, t = r.text]() {
