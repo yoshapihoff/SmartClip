@@ -285,7 +285,7 @@ SmartClipApp::SmartClipApp(QObject *parent)
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     if (QStyleHints *hints = qApp->styleHints()) {
-        connect(hints, &QStyleHints::colorSchemeChanged, this, &SmartClipApp::updateIcon);
+        connect(hints, &QStyleHints::colorSchemeChanged, this, &SmartClipApp::onThemeTick);
     }
 #endif
 
@@ -296,7 +296,7 @@ SmartClipApp::SmartClipApp(QObject *parent)
     // сами (gsettings), дёшево — раз в 5 с.
     iconThemeTimer = new QTimer(this);
     iconThemeTimer->setInterval(5000);
-    connect(iconThemeTimer, &QTimer::timeout, this, &SmartClipApp::updateIcon);
+    connect(iconThemeTimer, &QTimer::timeout, this, &SmartClipApp::onThemeTick);
     iconThemeTimer->start();
 #endif
 
@@ -836,7 +836,7 @@ void SmartClipApp::refreshTrayPopup()
         return;
 
     // Цвет темы подхватываем системную (для ОКОН: 'default' = светлая).
-    trayPopup->setDarkMode(windowPrefersDark());
+    updatePopupTheme();
 
     QVector<TrayPopup::RowData> rows;
     const auto &history = historyManager->history();
@@ -1047,6 +1047,22 @@ bool SmartClipApp::windowPrefersDark()
 #endif
 
     return qApp->palette().color(QPalette::Window).lightness() < 128;
+}
+
+void SmartClipApp::updatePopupTheme()
+{
+    if (trayPopup)
+        trayPopup->setDarkMode(windowPrefersDark());
+}
+
+void SmartClipApp::onThemeTick()
+{
+    // Один общий тик на Linux/Wayland (Qt не шлёт colorSchemeChanged):
+    // обновляем и иконку трея, и тему уже открытого попапа. Иначе попап,
+    // открытый во время смены темы, оставался в старой схеме до следующего
+    // открытия (жалоба: «на тёмном и на светлом попап белый»).
+    updateIcon();
+    updatePopupTheme();
 }
 
 void SmartClipApp::updateIcon()

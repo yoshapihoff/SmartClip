@@ -32,6 +32,8 @@ public:
 
 private slots:
     void updateIcon();
+    /** Периодический тик темы: обновить иконку трея И тему попапа. */
+    void onThemeTick();
     void onClipboardChanged();
     void pollClipboard();
     void onSettings();
@@ -82,6 +84,8 @@ private:
     void showTrayPopup();
     /** Пересобрать содержимое попапа (если он включён). */
     void refreshTrayPopup();
+    /** Применить текущую системную тему к попапу (светлая/тёмная). */
+    void updatePopupTheme();
 
     bool ignoreNextClipboardChange = false;
     QString lastClipboardText;
