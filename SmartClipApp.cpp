@@ -859,8 +859,8 @@ void SmartClipApp::refreshTrayPopup()
         r.text = item.text;
         r.display = item.maskInMenu ? maskForMenuDisplay(item.text) : item.text;
         r.display.replace(QLatin1Char('\n'), QLatin1Char(' '));
-        if (r.display.size() > 90)
-            r.display = r.display.left(87) + QStringLiteral("\u2026");
+        // Обрезки НЕТ: попап сам подстраивает ширину под содержимое
+        // (см. TrayPopup::updateContentWidth) — данные и комментарии видны целиком.
         // Комментарий НЕ склеиваем с текстом: он показывается отдельным
         // (нежирным) элементом после текста — см. TrayPopup::PlotRow.
         r.comment = item.comment;

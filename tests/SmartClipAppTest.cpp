@@ -56,6 +56,7 @@ private slots:
     void testTrayPopupHideButton();
     void testTrayPopupClearDoesNotHide();
     void testTrayPopupRowActionDoesNotHide();
+    void testTrayPopupWidthFitsContent();
 
 private:
     QApplication *m_app;
@@ -521,6 +522,30 @@ void TestSmartClipApp::testTrayPopupRowActionDoesNotHide()
     }
     QCOMPARE(favSpy.count(), 1);
     QCOMPARE(delSpy.count(), 1);
+}
+
+// Ширина попапа должна расти под длинный текст+комментарий (без обрезки).
+void TestSmartClipApp::testTrayPopupWidthFitsContent()
+{
+    TrayPopup shortP;
+    TrayPopup::RowData s;
+    s.text = QStringLiteral("hi");
+    s.display = s.text;
+    shortP.setRows({s});
+    const int wShort = shortP.width();
+
+    TrayPopup longP;
+    TrayPopup::RowData l;
+    l.text = QStringLiteral("dk@deareditor.ru");
+    l.display = l.text;
+    l.comment = QString(240, QLatin1Char('x'));   // длинный комментарий
+    longP.setRows({l});
+    const int wLong = longP.width();
+
+    QVERIFY2(wLong > wShort,
+             "Ширина должна расти под более длинное содержимое");
+    QVERIFY2(wShort >= 360,
+             "Минимальная ширина — по футеру/заголовку");
 }
 
 QTEST_MAIN(TestSmartClipApp)

@@ -67,6 +67,8 @@ protected:
 private:
     void applyStyle();
     void clearRows();
+    /** Подогнать ширину окна под самый длинный текст+комментарий (без обрезки). */
+    void updateContentWidth();
     QIcon glyph(const QString &kind, const QColor &color, bool filled = false) const;
 
     QFrame *m_card = nullptr;

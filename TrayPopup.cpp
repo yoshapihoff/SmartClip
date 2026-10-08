@@ -107,6 +107,28 @@ public:
     void setComment(const QString &c) { m_comment = c; update(); }
     void setCommentColor(const QColor &c) { m_commentFg = c; update(); }
 
+    /**
+     * Ширина, нужная, чтобы текст элемента И комментарий поместились ЦЕЛИКОМ
+     * (без эллипсиса): колонка маркера + отступ справа + «— » + комментарий.
+     * Учитывает фактическую жирность текста и обычный комментарий.
+     */
+    int contentWidth() const
+    {
+        const int left = 24;
+        QFont f = font();
+        f.setBold(m_bold);
+        const QFontMetrics fm(f);
+        int w = fm.horizontalAdvance(m_text);
+        if (!m_comment.isEmpty()) {
+            QFont cf = font();
+            cf.setBold(false);
+            const QFontMetrics cfm(cf);
+            w += fm.horizontalAdvance(QStringLiteral(" \u2014 "))
+                 + cfm.horizontalAdvance(m_comment);
+        }
+        return left + 6 + w;   // 6 — правый внутренний отступ строки
+    }
+
 signals:
     void clicked();
 
@@ -571,6 +593,37 @@ void TrayPopup::setRows(const QVector<RowData> &rows)
 
         m_rowsLayout->insertWidget(m_rowsLayout->count() - 1, row);
     }
+
+    updateContentWidth();
+}
+
+void TrayPopup::updateContentWidth()
+{
+    // Ширина окна = самая широкая строка (текст + комментарий, БЕЗ обрезки)
+    // + колонка кнопок действий справа + внутренние отступы карточки и
+    // строк. Так все данные и комментарии помещаются целиком.
+    int maxTextW = 0;
+    const auto labels = findChildren<ElidedLabel *>();
+    for (ElidedLabel *l : labels)
+        maxTextW = qMax(maxTextW, l->contentWidth());
+
+    constexpr int kActionsCol = kActionWidth * 4 + 6;   // колонка кнопок строки
+    constexpr int kRowsRightMargin = 5;                 // m_rowsLayout right
+    constexpr int kRowSpacing = 2;                      // HBox spacing
+    constexpr int kCardMargins = 6 * 2;                 // lay margins карточки
+    constexpr int kScrollbar = 10;                      // запас на верт. скроллбар
+    constexpr int kMinWidth = 360;                      // футер + заголовок
+
+    // Верхняя граница — ширина экрана (окно не должно вылезать за край).
+    int screenW = 1280;
+    if (QScreen *s = QGuiApplication::primaryScreen())
+        screenW = s->availableGeometry().width();
+    const int kMaxWidth = qMax(kMinWidth, screenW - 16);
+
+    int w = maxTextW + kActionsCol + kRowsRightMargin + kRowSpacing
+            + kCardMargins + kScrollbar + 2 /* рамка карточки */;
+    w = qBound(kMinWidth, w, kMaxWidth);
+    setFixedWidth(w);
 }
 
 void TrayPopup::showAt(const QPoint &anchor)
