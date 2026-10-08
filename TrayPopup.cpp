@@ -635,20 +635,25 @@ void TrayPopup::updateContentSize(const QRect &area)
 
     // Оценка высоты «содержимого» при текущей ширине.
     int contentH = m_title ? m_title->heightForWidth(w - kCardMargins) : 0;
+    const int rowSpacing = m_rowsLayout->spacing();
     const int rowCount = m_rowsLayout->count() - 1;   // без финального stretch
     if (rowCount > 0) {
-        contentH += rowCount * (kRowHeight + m_rowsLayout->spacing())
-                    + 2 /* запас на скроллбар/границы */;
+        // Строки + промежутки между ними (после последней — нет).
+        contentH += rowCount * kRowHeight + (rowCount - 1) * rowSpacing;
     }
     if (rowCount == 0 && m_empty && m_empty->isVisible())
         contentH += m_empty->sizeHint().height();
 
+    // Chrome: разделитель + футер + отступы карточки.
     const int chromeH = (m_sep ? m_sep->sizeHint().height() : 0)
                       + (m_footer ? m_footer->sizeHint().height() : 0)
-                      + kCardMargins + m_rowsLayout->contentsMargins().top()
-                      + m_rowsLayout->contentsMargins().bottom() + 2;
+                      + kCardMargins;
 
-    const int wanted = contentH + chromeH;
+    int wanted = contentH + chromeH;
+    // Если содержимое умещается в потолок — даём небольшой запас, чтобы
+    // вертикальный скроллбар не появлялся из-за расхождения в пару пикселей.
+    if (wanted <= maxH)
+        wanted += 12;
     setFixedHeight(qMin(maxH, wanted));
 }
 
