@@ -155,6 +155,15 @@ public:
         m_actions->setVisible(always);
     }
 
+    /** Вернуть строку в не-hover вид (кнопки спрятать, фон убрать).
+     *  Нужно при скрытии окна: leaveEvent тогда не приходит. */
+    void resetHover()
+    {
+        if (!qEnvironmentVariableIsSet("SMARTCLIP_POPUP_ACTIONS_ALWAYS"))
+            m_actions->setVisible(false);
+        setStyleSheet(QString());
+    }
+
 protected:
     void enterEvent(QEnterEvent *e) override
     {
@@ -165,9 +174,7 @@ protected:
     }
     void leaveEvent(QEvent *e) override
     {
-        if (!qEnvironmentVariableIsSet("SMARTCLIP_POPUP_ACTIONS_ALWAYS"))
-            m_actions->setVisible(false);
-        setStyleSheet(QString());
+        resetHover();
         QWidget::leaveEvent(e);
     }
 
@@ -231,14 +238,19 @@ TrayPopup::TrayPopup(QWidget *parent)
     footer->setSpacing(2);
     auto addFooter = [&](const QString &label, const QString &tip,
                          void (TrayPopup::*signal)(),
+                         bool hideWindow = true,
                          const QString &objectName = QStringLiteral("footerBtn")) {
         auto *btn = new QPushButton(label, m_card);
         btn->setObjectName(objectName);
         btn->setToolTip(tip);
         btn->setCursor(Qt::PointingHandCursor);
         btn->setFlat(true);
-        connect(btn, &QPushButton::clicked, this, [this, signal]() {
-            hide();
+        connect(btn, &QPushButton::clicked, this, [this, signal, hideWindow]() {
+            // Settings/Help — прячем (открывается модальный диалог).
+            // Clear — НЕ прячем: попап перестраивается на месте
+            // (удаляются только НЕизбранные, избранное остаётся).
+            if (hideWindow)
+                hide();
             emit (this->*signal)();
         });
         footer->addWidget(btn);
@@ -262,7 +274,7 @@ TrayPopup::TrayPopup(QWidget *parent)
         footer->addSpacing(4);
     }
     addFooter(QStringLiteral("Clear"), QStringLiteral("Clear history"),
-              &TrayPopup::clearRequested);
+              &TrayPopup::clearRequested, /*hideWindow=*/false);
     addFooter(QStringLiteral("Settings"), QStringLiteral("Settings"),
               &TrayPopup::settingsRequested);
     addFooter(QStringLiteral("Help"), QStringLiteral("Help"),
@@ -444,6 +456,7 @@ void TrayPopup::setRows(const QVector<RowData> &rows)
         if (r.favorite && r.color.isValid())
             text->setMarker(r.color);
         connect(text, &ElidedLabel::clicked, this, [this, t = r.text]() {
+            // Копирование = «выбор элемента» — окно прячем (см. запрос).
             hide();
             emit clipChosen(t);
         });
@@ -468,7 +481,12 @@ void TrayPopup::setRows(const QVector<RowData> &rows)
             b->setAutoRaise(true);
             b->setFixedSize(kActionWidth, kRowHeight - 2);
             connect(b, &QToolButton::clicked, this,
-                    [this, t = r.text, signal]() { emit (this->*signal)(t); });
+                    [this, t = r.text, signal]() {
+                        // Действия строки (★ избранное, глаз маска, карандаш
+                        // комментарий, ✕ удаление) НЕ прячут попап: он
+                        // перестраивается на месте в обработчике владельца.
+                        emit (this->*signal)(t);
+                    });
             al->addWidget(b);
         };
 
@@ -527,6 +545,16 @@ void TrayPopup::showAt(const QPoint &anchor)
     setFocus();
 }
 
+void TrayPopup::hideEvent(QHideEvent *event)
+{
+    // Сбрасываем hover-состояние открытых строк: у скрытого окна leaveEvent
+    // не приходит, и кнопки действий остались бы «залипшими» видимыми.
+    const auto rows = findChildren<RowWidget *>();
+    for (RowWidget *r : rows)
+        r->resetHover();
+    QWidget::hideEvent(event);
+}
+
 void TrayPopup::keyPressEvent(QKeyEvent *event)
 {
     if (event->key() == Qt::Key_Escape) {
@@ -572,8 +600,9 @@ bool TrayPopup::event(QEvent *event)
     // Надёжное закрытие «как меню»: помимо штатного Qt::Popup (клик вне),
     // прячем окно, когда оно теряет активность окна/приложения. На части
     // Wayland/XWayland-сборок штатный захват мыши не срабатывает.
-    if (event->type() == QEvent::WindowDeactivate ||
-        event->type() == QEvent::ApplicationDeactivate) {
+    if ((event->type() == QEvent::WindowDeactivate ||
+         event->type() == QEvent::ApplicationDeactivate) &&
+        !m_suppressAutoHide) {
         if (isVisible())
             hide();
     }

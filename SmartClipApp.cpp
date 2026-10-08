@@ -106,13 +106,13 @@ SmartClipApp::SmartClipApp(QObject *parent)
     // один раз и переиспользуется.
     if (encKey.size() == 32) {
         historyManager->setEncryptionKey(encKey);
-        qInfo() << "SmartClip: шифрование истории ВКЛ ("
+        qInfo() << "SmartClip: history encryption ON ("
                 << Crypto::keyringBackend() << ")";
     } else {
         // Fail-closed: без ключа история не пишется и не читается (см.
         // HistoryManager::save/loadHistory). Открытым текстом — никогда.
-        qWarning() << "SmartClip: ключ шифрования недоступен — история буфера "
-                      "НЕ сохраняется (шифрование строго обязательно).";
+        qWarning() << "SmartClip: encryption key unavailable — clipboard history "
+                      "is NOT saved (encryption is strictly required).";
     }
 
     if (settingsManager->saveHistoryOnExit()) {
@@ -120,8 +120,8 @@ SmartClipApp::SmartClipApp(QObject *parent)
         // Fail-closed: история есть на диске, но ключа нет — НЕ читаем и НЕ
         // перезаписываем (нельзя ни открыть, ни потерять). Громко сообщаем.
         if (encKey.size() != 32 && QFile::exists(historyFilePath())) {
-            qWarning() << "SmartClip: история на диске есть, но ключ недоступен — "
-                          "файл не читается и не перезаписывается.";
+            qWarning() << "SmartClip: history exists on disk but the key is "
+                          "unavailable — the file is neither read nor rewritten.";
         }
         // loadHistory вернёт true, если файл был в старом ОТКРЫТОМ формате —
         // тогда перезапишем его шифрованным (разумая миграция).
@@ -134,7 +134,7 @@ SmartClipApp::SmartClipApp(QObject *parent)
             }
         }
         if (migrated) {
-            qInfo() << "SmartClip: миграция истории → шифрованный формат";
+            qInfo() << "SmartClip: migrating history -> encrypted format";
             persistHistory();
         }
     } else {
@@ -181,18 +181,30 @@ SmartClipApp::SmartClipApp(QObject *parent)
                     rebuildMenu();
                 });
         connect(trayPopup, &TrayPopup::favoriteToggled, this,
-                &SmartClipApp::onToggleFavorite);
+                [this](const QString &text) {
+                    onToggleFavorite(text);
+                    refreshTrayPopup();   // не прятать попап — обновить на месте
+                });
         connect(trayPopup, &TrayPopup::maskToggled, this,
                 [this](const QString &text) { toggleItemMask(text); refreshTrayPopup(); });
         connect(trayPopup, &TrayPopup::commentRequested, this,
                 [this](const QString &text) {
+                    // Диалог комментария модальный — он забирает фокус, и без
+                    // подавления попап сам бы спрятался (WindowDeactivate).
+                    // Запрос: комментарий НЕ прячет окно — только копирование,
+                    // настройки и справка.
+                    if (trayPopup)
+                        trayPopup->setSuppressAutoHide(true);
                     QString newComment;
                     if (promptComment(text, newComment)) {
                         historyManager->setComment(text, newComment);
                         persistHistory();
                         notifySync();
                     }
-                    refreshTrayPopup();
+                    if (trayPopup) {
+                        trayPopup->setSuppressAutoHide(false);
+                        refreshTrayPopup();
+                    }
                 });
         connect(trayPopup, &TrayPopup::deleteRequested, this,
                 [this](const QString &text) {
@@ -200,7 +212,10 @@ SmartClipApp::SmartClipApp(QObject *parent)
                     refreshTrayPopup();
                 });
         connect(trayPopup, &TrayPopup::clearRequested, this,
-                &SmartClipApp::onClearHistory);
+                [this]() {
+                    onClearHistory();
+                    refreshTrayPopup();   // осталось только избранное — обновить
+                });
         connect(trayPopup, &TrayPopup::settingsRequested, this,
                 &SmartClipApp::onSettings);
         connect(trayPopup, &TrayPopup::helpRequested, this,
@@ -399,12 +414,19 @@ void SmartClipApp::pollClipboard()
 
 void SmartClipApp::onHelp()
 {
+    // Закрываем попап перед модальным диалогом (запрос Лёши: прятать окно
+    // только при настройках/справке/копировании).
+    if (trayPopup)
+        trayPopup->hide();
     HelpDialog dialog;
     dialog.exec();
 }
 
 void SmartClipApp::onSettings()
 {
+    // Аналогично справке: модальный диалог → попап прячем.
+    if (trayPopup)
+        trayPopup->hide();
     SettingsDialog dialog(settingsManager, syncManager);
     if (dialog.exec() == QDialog::Accepted) {
         // Settings are automatically saved by SettingsManager when changed

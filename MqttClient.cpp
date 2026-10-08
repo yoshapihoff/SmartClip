@@ -100,13 +100,13 @@ void MqttClient::setStatus(Status s, const QString &error)
 QString MqttClient::statusText() const
 {
     if (!available())
-        return QStringLiteral("Недоступно: сборка без модуля Qt6::Mqtt");
+        return QStringLiteral("Unavailable: built without the Qt6::Mqtt module");
     switch (m_status) {
-    case Status::Unavailable:  return QStringLiteral("Недоступно");
-    case Status::Disconnected: return QStringLiteral("Отключено");
-    case Status::Connecting:   return QStringLiteral("Подключение…");
-    case Status::Connected:    return QStringLiteral("Подключено");
-    case Status::Error:        return QStringLiteral("Ошибка: ") + m_lastError;
+    case Status::Unavailable:  return QStringLiteral("Unavailable");
+    case Status::Disconnected: return QStringLiteral("Disconnected");
+    case Status::Connecting:   return QStringLiteral("Connecting…");
+    case Status::Connected:    return QStringLiteral("Connected");
+    case Status::Error:        return QStringLiteral("Error: ") + m_lastError;
     }
     return QString();
 }
@@ -168,8 +168,8 @@ void MqttClient::startConnect()
 #ifndef QT_NO_SSL
         m_client->connectToHostEncrypted(QSslConfiguration::defaultConfiguration());
 #else
-        setStatus(Status::Error, QStringLiteral("TLS недоступен в этой сборке Qt"));
-        emit errorOccurred(QStringLiteral("TLS недоступен в этой сборке Qt"));
+        setStatus(Status::Error, QStringLiteral("TLS unavailable in this Qt build"));
+        emit errorOccurred(QStringLiteral("TLS unavailable in this Qt build"));
 #endif
     } else {
         m_client->connectToHost();
@@ -277,7 +277,7 @@ void MqttClient::publish(const QString &topic, const QByteArray &payload,
 {
 #ifdef SMARTCLIP_HAVE_MQTT
     if (!m_client || m_client->state() != QMqttClient::Connected) {
-        qWarning() << "MqttClient: publish без соединения";
+        qWarning() << "MqttClient: publish without a connection";
         return;
     }
     // QoS 1 (at-least-once) + optionally retain: клип не теряется при обрыве,

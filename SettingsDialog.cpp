@@ -82,7 +82,7 @@ void SettingsDialog::setupUI()
     m_encPasswordEdit = new QLineEdit(syncGroup);
     m_encPasswordEdit->setEchoMode(QLineEdit::Password);
     m_encPasswordEdit->setToolTip(
-        "Общий пароль для шифрования пакетов. Одинаковый на всех устройствах.");
+        "Shared password used to encrypt sync packets. Must be the same on all devices.");
     syncLayout->addRow("Encryption password", m_encPasswordEdit);
 
     m_roleCombo = new QComboBox(syncGroup);
@@ -94,17 +94,17 @@ void SettingsDialog::setupUI()
     m_roomEdit->setPlaceholderText("smartclip");
     syncLayout->addRow("Room", m_roomEdit);
 
-    // ── Статус соединения с брокером ──
-    // Живой индикатор: «Недоступно / Выключено / Подключение… / Подключено /
-    // Ошибка». Кнопка «Проверить…» инициирует подключение, не закрывая диалог.
+    // ── Connection status with the broker ──
+    // Live indicator: Unavailable / Disabled / Connecting… / Connected /
+    // Error. The “Check…” button starts a connection without closing the dialog.
     QHBoxLayout *statusLayout = new QHBoxLayout();
     QLabel *statusCaption = new QLabel("Connection status:", syncGroup);
     m_syncStatusLabel = new QLabel(syncGroup);
     m_syncStatusLabel->setWordWrap(true);
     m_syncStatusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    QPushButton *checkButton = new QPushButton("Проверить…", syncGroup);
+    QPushButton *checkButton = new QPushButton("Check…", syncGroup);
     checkButton->setToolTip(
-        "Подключиться к брокеру прямо сейчас и показать результат.");
+        "Connect to the broker right now and show the result.");
     statusLayout->addWidget(statusCaption);
     statusLayout->addWidget(m_syncStatusLabel, 1);
     statusLayout->addWidget(checkButton);
@@ -120,8 +120,8 @@ void SettingsDialog::setupUI()
 
     // Нотация подсказки: не тащим лишнего — просто краткий hint.
     QLabel *hint = new QLabel(
-        "Синк опционален. Master задаёт приоритет избранного; у всех устройств "
-        "должен быть одинаковый Encryption password.", this);
+        "Sync is optional. The master decides favorite priorities; every device "
+        "must use the same Encryption password.", this);
     hint->setWordWrap(true);
     mainLayout->addWidget(hint);
     
@@ -167,21 +167,21 @@ void SettingsDialog::updateSyncStatus()
         // Живой статус клиента (соединение, ошибки) — берём у SyncManager.
         text = m_syncManager->statusText();
         // Цветовая маркировка (кружок-индикатор).
-        if (text.startsWith(QStringLiteral("Подключено")))        color = "#2ec27e";
-        else if (text.startsWith(QStringLiteral("Ошибка")))       color = "#e01b24";
-        else if (text.startsWith(QStringLiteral("Подключение"))) color = "#f5c211";
+        if (text.startsWith(QStringLiteral("Connected")))        color = "#2ec27e";
+        else if (text.startsWith(QStringLiteral("Error")))       color = "#e01b24";
+        else if (text.startsWith(QStringLiteral("Connecting")))  color = "#f5c211";
         else                                                      color = "#9a9996";
     } else if (!m_settingsManager) {
-        text = QStringLiteral("Нет настроек");
+        text = QStringLiteral("No settings");
         color = "#9a9996";
     } else if (!m_settingsManager->syncEnabled()) {
-        text = QStringLiteral("Выключено (синхронизация не включена)");
+        text = QStringLiteral("Disabled (network sync is off)");
         color = "#9a9996";
     } else if (!MqttClient::available()) {
-        text = QStringLiteral("Недоступно: сборка без модуля Qt6::Mqtt");
+        text = QStringLiteral("Unavailable: built without the Qt6::Mqtt module");
         color = "#e01b24";
     } else {
-        text = QStringLiteral("Настроено — проверка при открытии/OK");
+        text = QStringLiteral("Configured — checked on open/OK");
         color = "#9a9996";
     }
 

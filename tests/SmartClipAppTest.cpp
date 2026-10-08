@@ -20,6 +20,7 @@
 #include "../LaunchAgentManager.h"
 #include "../TrayPopup.h"
 #include <QPushButton>
+#include <QToolButton>
 
 class TestSmartClipApp : public QObject
 {
@@ -53,6 +54,8 @@ private slots:
     void testMultipleClipboardChanges();
     void testFavoriteColorPersistence();
     void testTrayPopupHideButton();
+    void testTrayPopupClearDoesNotHide();
+    void testTrayPopupRowActionDoesNotHide();
 
 private:
     QApplication *m_app;
@@ -471,6 +474,53 @@ void TestSmartClipApp::testTrayPopupHideButton()
     // Клик по Hide прячет окно.
     hideBtn->click();
     QVERIFY2(!popup.isVisible(), "Clicking Hide must hide the popup");
+}
+
+// Clear и действия строки НЕ должны прятать попап (запрос: окно скрывается
+// только при копировании/настройках/справке).
+void TestSmartClipApp::testTrayPopupClearDoesNotHide()
+{
+    TrayPopup popup;
+    popup.setRows({});
+    popup.showAt(QPoint(200, 100));
+    QVERIFY(popup.isVisible());
+
+    QPushButton *clearBtn = nullptr;
+    for (QPushButton *b : popup.findChildren<QPushButton *>()) {
+        if (b->text() == QStringLiteral("Clear")) { clearBtn = b; break; }
+    }
+    QVERIFY2(clearBtn != nullptr, "Footer must contain Clear");
+
+    QSignalSpy clearSpy(&popup, &TrayPopup::clearRequested);
+    clearBtn->click();
+    QCOMPARE(clearSpy.count(), 1);
+    QVERIFY2(popup.isVisible(), "Clear must NOT hide the popup");
+}
+
+void TestSmartClipApp::testTrayPopupRowActionDoesNotHide()
+{
+    TrayPopup popup;
+    TrayPopup::RowData r;
+    r.text = QStringLiteral("sample-text");
+    r.display = r.text;
+    popup.setRows({r});
+    popup.showAt(QPoint(200, 100));
+    QVERIFY(popup.isVisible());
+
+    // Кнопки действий строки — QToolButton#rowAction (★ 👁 ✎ ✕).
+    const auto actions = popup.findChildren<QToolButton *>(QStringLiteral("rowAction"));
+    QVERIFY2(actions.size() == 4, "Row must expose 4 action buttons");
+
+    QSignalSpy favSpy(&popup, &TrayPopup::favoriteToggled);
+    QSignalSpy delSpy(&popup, &TrayPopup::deleteRequested);
+    // ЛКМ по первой (избранное) и последней (удаление) кнопкам.
+    for (QToolButton *b : actions) {
+        QTest::mouseClick(b, Qt::LeftButton);
+        QVERIFY2(popup.isVisible(),
+                 "Row action must NOT hide the popup");
+    }
+    QCOMPARE(favSpy.count(), 1);
+    QCOMPARE(delSpy.count(), 1);
 }
 
 QTEST_MAIN(TestSmartClipApp)

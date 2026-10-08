@@ -42,6 +42,12 @@ public:
     void setRows(const QVector<RowData> &rows);
     void setDarkMode(bool dark);
     void setVersion(const QString &version);
+    /**
+     * Временное подавление авто-скрытия (WindowDeactivate). Нужно для
+     * модальных диалогов, вызванных ИЗ попапа (комментарий): они забирают
+     * фокус, а попап по требованию прятать не должен.
+     */
+    void setSuppressAutoHide(bool on) { m_suppressAutoHide = on; }
 
     /** Показать рядом с точкой anchor (позиция иконки трея/курсора). */
     void showAt(const QPoint &anchor);
@@ -61,6 +67,7 @@ protected:
     void keyPressEvent(QKeyEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
     bool event(QEvent *event) override;
+    void hideEvent(QHideEvent *event) override;
 
 private:
     void applyStyle();
@@ -72,5 +79,6 @@ private:
     QLabel *m_title = nullptr;
     QLabel *m_empty = nullptr;
     bool m_dark = false;
+    bool m_suppressAutoHide = false;   // не прятаться при потере фокуса
     QString m_version;
 };

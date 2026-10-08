@@ -283,7 +283,7 @@ QByteArray loadOrCreateKey(const QString &service, const QString &account)
     // Ключа нет — создаём новый (только если CSPRNG работает).
     key = randomBytes(kKeyLen);
     if (key.size() != kKeyLen) {
-        qWarning() << "SmartClip: генератор ключей недоступен (нет CSPRNG)";
+        qWarning() << "SmartClip: key generator unavailable (no CSPRNG)";
         return {};
     }
 
@@ -295,7 +295,7 @@ QByteArray loadOrCreateKey(const QString &service, const QString &account)
             QThread::msleep(kRetryDelayMs);
     }
 
-    qWarning() << "SmartClip: не удалось сохранить ключ шифрования в"
+    qWarning() << "SmartClip: failed to store the encryption key in"
                << keyringBackend();
     return {};
 }

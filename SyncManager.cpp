@@ -170,24 +170,24 @@ QString SyncManager::inactiveReason() const
     if (isActive())
         return QString();
     if (!m_settings || !m_settings->syncEnabled())
-        return QStringLiteral("синхронизация выключена");
+        return QStringLiteral("sync disabled");
     if (!MqttClient::available())
-        return QStringLiteral("сборка без модуля Qt6::Mqtt");
+        return QStringLiteral("built without the Qt6::Mqtt module");
     if (m_settings->brokerHost().trimmed().isEmpty())
-        return QStringLiteral("не задан Broker host");
+        return QStringLiteral("broker host not set");
     if (m_settings->syncEncryptionPassword().isEmpty())
-        return QStringLiteral("не задан Encryption password");
-    return QStringLiteral("не активна");
+        return QStringLiteral("encryption password not set");
+    return QStringLiteral("not active");
 }
 
 QString SyncManager::statusText() const
 {
     if (!m_client)
-        return QStringLiteral("Нет клиента");
+        return QStringLiteral("No client");
     if (!isActive()) {
         const QString why = inactiveReason();
-        return why.isEmpty() ? QStringLiteral("Отключено")
-                             : QStringLiteral("Выключено (") + why + QStringLiteral(")");
+        return why.isEmpty() ? QStringLiteral("Disabled")
+                             : QStringLiteral("Disabled (") + why + QStringLiteral(")");
     }
     return m_client->statusText();
 }
@@ -353,8 +353,8 @@ void SyncManager::onMessage(const QString &topicName, const QByteArray &payload)
     bool ok = false;
     const QByteArray plain = Crypto::decrypt(blob, key, &ok);
     if (!ok) {
-        qWarning() << "SmartClip sync: не расшифровал входящий пакет "
-                      "(неверный общий пароль?)";
+        qWarning() << "SmartClip sync: could not decrypt the incoming packet "
+                      "(wrong shared password?)";
         return;
     }
 

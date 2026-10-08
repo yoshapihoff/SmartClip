@@ -19,12 +19,12 @@ QString encodeSecret(const QString &plain, const QByteArray &key)
     // Зашифровать ОБЯЗАТЕЛЬНО. Если ключа/бэкенда нет — НЕ сохраняем секрет
     // вовсе (fail-closed), вместо записи открытым текстом.
     if (key.size() != 32 || !Crypto::available()) {
-        qWarning() << "SmartClip: нет ключа шифрования — секрет не сохраняется";
+        qWarning() << "SmartClip: no encryption key — secret is not saved";
         return QString();
     }
     const QByteArray blob = Crypto::encrypt(plain.toUtf8(), key);
     if (blob.isEmpty()) {
-        qWarning() << "SmartClip: не удалось зашифровать секрет — не сохраняется";
+        qWarning() << "SmartClip: failed to encrypt secret — not saved";
         return QString();
     }
     return QLatin1String("v2:") + QString::fromLatin1(blob.toBase64());
