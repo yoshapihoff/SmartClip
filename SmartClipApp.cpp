@@ -26,6 +26,7 @@
 #include <QRegularExpression>
 #include <QFileInfo>
 #include <QDateTime>
+#include <QWidget>
 #include <QDialog>
 #include <QVBoxLayout>
 #include <QPlainTextEdit>
@@ -927,8 +928,33 @@ void SmartClipApp::showTrayPopup()
             anchor = QPoint(g.center().x(), g.bottom());
     }
     popupShownAtMs = QDateTime::currentMSecsSinceEpoch();
+#if defined(Q_OS_MAC)
+    macBringAppForward();
+#endif
     trayPopup->showAt(anchor);
 }
+
+#if defined(Q_OS_MAC)
+void SmartClipApp::macBringAppForward()
+{
+    // macOS: menu-bar-приложение (LSUIElement) не является активным. Из-за
+    // этого Qt::Popup после show() сразу закрывается системой → попап
+    // «моргает» (виден долю секунды и гаснет), особенно при повторном клике
+    // по иконке трея. Обходной путь (forum.qt.io/topic/164883): перед показом
+    // попапа открыть и активировать невидимое окно-хелпер, чтобы приложение
+    // было выведено вперёд и попап получил фокус. Окно не закрываем — это
+    // безопаснее (закрытие в hideEvent давало краш).
+    if (!macFocusHelper) {
+        macFocusHelper = new QWidget();
+        macFocusHelper->setAttribute(Qt::WA_TranslucentBackground);
+        macFocusHelper->setWindowFlags(Qt::FramelessWindowHint);
+        macFocusHelper->setFixedSize(2, 2);
+    }
+    macFocusHelper->show();
+    macFocusHelper->raise();
+    macFocusHelper->activateWindow();
+}
+#endif
 
 QString SmartClipApp::settingsFilePath() const
 {

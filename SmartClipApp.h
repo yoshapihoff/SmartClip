@@ -10,6 +10,7 @@
 
 class QAction;
 class QTimer;
+class QWidget;
 class SettingsManager;
 class SettingsDialog;
 class HelpDialog;
@@ -123,6 +124,17 @@ private:
     // «Режим избранного»: на GNOME Wayland Ctrl+клик недоходит до приложения,
     // поэтому клик по элементу работает как тумблер избранного (см. rebuildMenu).
     bool favoriteMode = false;
+
+#if defined(Q_OS_MAC)
+    /**
+     * Невидимое окно-хелпер для macOS. Перед показом попапа выводит
+     * приложение вперёд: иначе Qt::Popup на macOS показывается и тут же
+     * закрывается AppKit'ом (баг меню-барных/status-item приложений).
+     * Обход подтверждён в трекере Qt (forum.qt.io/topic/164883).
+     */
+    void macBringAppForward();
+    QWidget *macFocusHelper = nullptr;
+#endif
     
     // Цвета для иконок избранного
     static const QColor favoriteColors[33]; // 32 цвета + белый
