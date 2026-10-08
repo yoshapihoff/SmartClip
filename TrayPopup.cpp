@@ -633,6 +633,11 @@ void TrayPopup::showAt(const QPoint &anchor)
         screen = QGuiApplication::primaryScreen();
     const QRect area = screen->availableGeometry();
 
+    // Стандартная высота попапа — 2/3 высоты экрана (запрос Лёши).
+    // Ширина — по содержимому (updateContentWidth), высота — по экрану.
+    constexpr int kHeightMin = 200;
+    setFixedHeight(qMax(kHeightMin, area.height() * 2 / 3));
+
     // Встаём СРАЗУ ПОД точкой клика: левый край окна — от точки клика,
     // ниже — небольшой отступ. Если правый край выходит за экран — сдвигаем
     // влево. Если снизу не влезает — показываем НАД точкой клика.
