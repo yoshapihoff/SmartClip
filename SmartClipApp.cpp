@@ -848,6 +848,10 @@ void SmartClipApp::refreshTrayPopup()
     if (!trayPopup)
         return;
 
+    // Сам текст элемента в списке — не длиннее 32 символов (эллипсис при
+    // превышении). Полный текст остаётся в r.text и копируется в буфер как есть.
+    constexpr int kMaxItemChars = 32;
+
     // Цвет темы подхватываем системную (для ОКОН: 'default' = светлая).
     updatePopupTheme();
 
@@ -859,10 +863,11 @@ void SmartClipApp::refreshTrayPopup()
         r.text = item.text;
         r.display = item.maskInMenu ? maskForMenuDisplay(item.text) : item.text;
         r.display.replace(QLatin1Char('\n'), QLatin1Char(' '));
-        // Обрезки НЕТ: попап сам подстраивает ширину под содержимое
-        // (см. TrayPopup::updateContentWidth) — данные и комментарии видны целиком.
-        // Комментарий НЕ склеиваем с текстом: он показывается отдельным
-        // (нежирным) элементом после текста — см. TrayPopup::PlotRow.
+        if (r.display.size() > kMaxItemChars)
+            r.display = r.display.left(kMaxItemChars - 1) + QStringLiteral("\u2026");
+        // Комментарий НЕ режем — показывается целиком отдельным (нежирным)
+        // элементом после текста (см. TrayPopup::setRows). Ширина попапа
+        // подстраивается под содержимое (updateContentWidth).
         r.comment = item.comment;
         r.masked = item.maskInMenu;
         if (item.favoriteColorIndex >= 0) {
