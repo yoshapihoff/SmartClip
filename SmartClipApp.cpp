@@ -189,22 +189,13 @@ SmartClipApp::SmartClipApp(QObject *parent)
                 [this](const QString &text) { toggleItemMask(text); refreshTrayPopup(); });
         connect(trayPopup, &TrayPopup::commentRequested, this,
                 [this](const QString &text) {
-                    // Диалог комментария модальный — он забирает фокус, и без
-                    // подавления попап сам бы спрятался (WindowDeactivate).
-                    // Запрос: комментарий НЕ прячет окно — только копирование,
-                    // настройки и справка.
-                    if (trayPopup)
-                        trayPopup->setSuppressAutoHide(true);
                     QString newComment;
                     if (promptComment(text, newComment)) {
                         historyManager->setComment(text, newComment);
                         persistHistory();
                         notifySync();
                     }
-                    if (trayPopup) {
-                        trayPopup->setSuppressAutoHide(false);
-                        refreshTrayPopup();
-                    }
+                    refreshTrayPopup();
                 });
         connect(trayPopup, &TrayPopup::deleteRequested, this,
                 [this](const QString &text) {
@@ -870,8 +861,9 @@ void SmartClipApp::refreshTrayPopup()
         r.display.replace(QLatin1Char('\n'), QLatin1Char(' '));
         if (r.display.size() > 90)
             r.display = r.display.left(87) + QStringLiteral("\u2026");
-        if (!item.comment.isEmpty())
-            r.display += QStringLiteral(" \u2014 ") + item.comment;
+        // Комментарий НЕ склеиваем с текстом: он показывается отдельным
+        // (нежирным) элементом после текста — см. TrayPopup::PlotRow.
+        r.comment = item.comment;
         r.masked = item.maskInMenu;
         if (item.favoriteColorIndex >= 0) {
             r.favorite = true;

@@ -99,6 +99,13 @@ public:
     // пробрасывает палитру в этот кастомный QWidget: в тёмной теме строки
     // рисовались чёрным (палитра по умолчанию светлая). См. setRows().
     void setTextColor(const QColor &c) { m_fg = c; update(); }
+    // Сам текст элемента — ЖИРНЫЙ (комментарий рисуется в IdleText отдельно).
+    void setTextBold(bool b) { m_bold = b; update(); }
+    // Подчёркивание текста при наведении на строку (индикация кликабельности).
+    void setHovered(bool h) { m_hovered = h; update(); }
+    // Комментарий: отдельный НЕжирный приглушённый элемент после текста.
+    void setComment(const QString &c) { m_comment = c; update(); }
+    void setCommentColor(const QColor &c) { m_commentFg = c; update(); }
 
 signals:
     void clicked();
@@ -117,11 +124,41 @@ protected:
             p.drawEllipse(QPointF(12, height() / 2.0), 4, 4);
         }
         p.setPen(m_fg.isValid() ? m_fg : palette().color(QPalette::WindowText));
-        const QFontMetrics fm(font());
+        QFont f = font();
+        f.setBold(m_bold);
+        f.setUnderline(m_hovered);
+        const QFontMetrics fm(f);
         const int w = width() - left - 6;
-        const QString el = fm.elidedText(m_text, Qt::ElideRight, qMax(0, w));
-        p.drawText(QRect(left, 1, w, height() - 2),
-                   Qt::AlignVCenter | Qt::AlignLeft, el);
+
+        // Комментарий рисуем отдельным НЕжирным приглушённым элементом
+        // ПОСЛЕ текста (« — комментарий»). Жирность/подчёркивание относятся
+        // только к самому тексту элемента.
+        if (!m_comment.isEmpty()) {
+            QFont cf = font();
+            cf.setBold(false);
+            const QFontMetrics cfm(cf);
+            const QString sep = QStringLiteral(" \u2014 ");
+            const int sepW = fm.horizontalAdvance(sep);
+            const int maxComment = qMax(0, w - 40);   // текст не короче ~40px
+            const QString commentEl = cfm.elidedText(m_comment, Qt::ElideRight, maxComment);
+            const int commentW = cfm.horizontalAdvance(commentEl);
+            const int mainW = qMax(0, w - sepW - commentW);
+            const QString mainEl = fm.elidedText(m_text, Qt::ElideRight, mainW);
+            const int mainElW = fm.horizontalAdvance(mainEl);
+
+            p.setFont(f);
+            p.drawText(QRect(left, 1, mainElW + 2, height() - 2),
+                       Qt::AlignVCenter | Qt::AlignLeft, mainEl);
+            p.setPen(m_commentFg.isValid() ? m_commentFg
+                                           : palette().color(QPalette::WindowText));
+            p.setFont(cf);
+            p.drawText(QRect(left + mainElW, 1, w - mainElW, height() - 2),
+                       Qt::AlignVCenter | Qt::AlignLeft, sep + commentEl);
+        } else {
+            const QString el = fm.elidedText(m_text, Qt::ElideRight, qMax(0, w));
+            p.drawText(QRect(left, 1, w, height() - 2),
+                       Qt::AlignVCenter | Qt::AlignLeft, el);
+        }
     }
     void mouseReleaseEvent(QMouseEvent *e) override
     {
@@ -134,6 +171,10 @@ private:
     QString m_text;
     QColor m_marker;
     QColor m_fg;   // цвет текста (из темы попапа)
+    QColor m_commentFg;   // цвет комментария (приглушённый)
+    QString m_comment;    // комментарий (нежирный, после текста)
+    bool m_bold = false;      // сам текст элемента — жирный
+    bool m_hovered = false;   // наведение → подчёркивание
 };
 
 /** Контейнер строки: при наведении показывает кнопки-действия. */
@@ -143,7 +184,8 @@ class RowWidget final : public QWidget
 public:
     RowWidget(QWidget *textWidget, QWidget *actions, const QString &hoverBg,
               QWidget *parent)
-        : QWidget(parent), m_actions(actions), m_hoverBg(hoverBg)
+        : QWidget(parent), m_actions(actions), m_hoverBg(hoverBg),
+          m_textWidget(qobject_cast<ElidedLabel *>(textWidget))
     {
         auto *hl = new QHBoxLayout(this);
         hl->setContentsMargins(0, 0, 0, 0);
@@ -155,13 +197,15 @@ public:
         m_actions->setVisible(always);
     }
 
-    /** Вернуть строку в не-hover вид (кнопки спрятать, фон убрать).
+    /** Вернуть строку в не-hover вид (кнопки спрятать, фон и подчёркивание убрать).
      *  Нужно при скрытии окна: leaveEvent тогда не приходит. */
     void resetHover()
     {
         if (!qEnvironmentVariableIsSet("SMARTCLIP_POPUP_ACTIONS_ALWAYS"))
             m_actions->setVisible(false);
         setStyleSheet(QString());
+        if (m_textWidget)
+            m_textWidget->setHovered(false);
     }
 
 protected:
@@ -170,6 +214,10 @@ protected:
         m_actions->setVisible(true);
         setStyleSheet(QStringLiteral("#rowHost { background: %1; border-radius: 6px; }")
                           .arg(m_hoverBg));
+        // Наведение на строку → подчёркиваем текст элемента (только сам текст,
+        // не комментарий — тот рисуется отдельным проходом).
+        if (m_textWidget)
+            m_textWidget->setHovered(true);
         QWidget::enterEvent(e);
     }
     void leaveEvent(QEvent *e) override
@@ -181,6 +229,7 @@ protected:
 private:
     QWidget *m_actions;
     QString m_hoverBg;
+    ElidedLabel *m_textWidget = nullptr;
 };
 
 TrayPopup::TrayPopup(QWidget *parent)
@@ -302,6 +351,11 @@ void TrayPopup::setDarkMode(bool dark)
         return;
     m_dark = dark;
     applyStyle();
+    // Цвет текста строк задаётся явно из палитры темы (QSS в кастомный
+    // QWidget не пробрасывается) — поэтому при смене темы НА ЛЕТУ нужно
+    // пересобрать строки, иначе текст останется в старой схеме.
+    if (!m_rows.isEmpty())
+        setRows(m_rows);
 }
 
 void TrayPopup::applyStyle()
@@ -443,6 +497,7 @@ void TrayPopup::clearRows()
 
 void TrayPopup::setRows(const QVector<RowData> &rows)
 {
+    m_rows = rows;   // запоминаем для пересборки при смене темы
     clearRows();
     m_empty->setVisible(rows.isEmpty());
 
@@ -453,6 +508,12 @@ void TrayPopup::setRows(const QVector<RowData> &rows)
         auto *text = new ElidedLabel(m_card);
         text->setFullText(r.display);
         text->setTextColor(QColor(p.itemFg));
+        text->setTextBold(true);   // сам текст элемента — жирный
+        if (!r.comment.isEmpty()) {
+            // Комментарий — «как есть»: тот же цвет, что и раньше, но НЕжирный.
+            text->setComment(r.comment);
+            text->setCommentColor(QColor(p.itemFg));
+        }
         if (r.favorite && r.color.isValid())
             text->setMarker(r.color);
         connect(text, &ElidedLabel::clicked, this, [this, t = r.text]() {
@@ -600,9 +661,8 @@ bool TrayPopup::event(QEvent *event)
     // Надёжное закрытие «как меню»: помимо штатного Qt::Popup (клик вне),
     // прячем окно, когда оно теряет активность окна/приложения. На части
     // Wayland/XWayland-сборок штатный захват мыши не срабатывает.
-    if ((event->type() == QEvent::WindowDeactivate ||
-         event->type() == QEvent::ApplicationDeactivate) &&
-        !m_suppressAutoHide) {
+    if (event->type() == QEvent::WindowDeactivate ||
+        event->type() == QEvent::ApplicationDeactivate) {
         if (isVisible())
             hide();
     }

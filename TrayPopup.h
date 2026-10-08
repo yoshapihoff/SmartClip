@@ -31,7 +31,8 @@ public:
     /** Один пункт списка. Готовится вызывающей стороной. */
     struct RowData {
         QString text;            // полный текст (кладём в буфер)
-        QString display;         // как показывать (маска + «— комментарий»)
+        QString display;         // как показывать (маска)
+        QString comment;         // комментарий (отдельным нежирным элементом)
         bool favorite = false;
         QColor color;            // цвет маркера избранного (если favorite)
         bool masked = false;     // сейчас ли маскируется (для иконки «глаз»)
@@ -42,12 +43,6 @@ public:
     void setRows(const QVector<RowData> &rows);
     void setDarkMode(bool dark);
     void setVersion(const QString &version);
-    /**
-     * Временное подавление авто-скрытия (WindowDeactivate). Нужно для
-     * модальных диалогов, вызванных ИЗ попапа (комментарий): они забирают
-     * фокус, а попап по требованию прятать не должен.
-     */
-    void setSuppressAutoHide(bool on) { m_suppressAutoHide = on; }
 
     /** Показать рядом с точкой anchor (позиция иконки трея/курсора). */
     void showAt(const QPoint &anchor);
@@ -79,6 +74,9 @@ private:
     QLabel *m_title = nullptr;
     QLabel *m_empty = nullptr;
     bool m_dark = false;
-    bool m_suppressAutoHide = false;   // не прятаться при потере фокуса
     QString m_version;
+    // Последние установленные строки. Нужны, чтобы пересобрать их при смене
+    // темы на лету (цвет текста строк задаётся явно из палитры, а QSS его
+    // не перекрашивает).
+    QVector<RowData> m_rows;
 };
