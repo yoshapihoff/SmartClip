@@ -67,11 +67,19 @@ protected:
 private:
     void applyStyle();
     void clearRows();
-    /** Подогнать ширину окна под самый длинный текст+комментарий (без обрезки). */
+    /** Подогнать ширину окна под содержимое (без обрезки). */
     void updateContentWidth();
+    /**
+     * Выставить размер окна под содержимое и экран: ширина — по содержимому,
+     * высота — по числу строк, но НЕ больше 2/3 высоты доступной области
+     * экрана (при превышении появляется вертикальный скроллбар).
+     */
+    void updateContentSize(const QRect &availableArea);
     QIcon glyph(const QString &kind, const QColor &color, bool filled = false) const;
 
     QFrame *m_card = nullptr;
+    QFrame *m_sep = nullptr;
+    QWidget *m_footer = nullptr;
     QVBoxLayout *m_rowsLayout = nullptr;
     QLabel *m_title = nullptr;
     QLabel *m_empty = nullptr;

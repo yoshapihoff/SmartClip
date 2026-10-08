@@ -271,8 +271,11 @@ TrayPopup::TrayPopup(QWidget *parent)
     lay->setContentsMargins(6, 6, 6, 6);   // ОТСТУП ОТ КРАЯ (наш)
     lay->setSpacing(2);                     // ОТСТУП МЕЖДУ ЭЛЕМЕНТАМИ (наш)
 
-    m_title = new QLabel(QStringLiteral("SmartClip"), m_card);
+    m_title = new QLabel(
+        QStringLiteral("Select the clip you want to add to your clipboard"),
+        m_card);
     m_title->setObjectName(QStringLiteral("title"));
+    m_title->setWordWrap(true);
     lay->addWidget(m_title);
 
     auto *scroll = new QScrollArea(m_card);
@@ -299,12 +302,13 @@ TrayPopup::TrayPopup(QWidget *parent)
     lay->addWidget(m_empty);
 
     // ── Футер ─────────────────────────────────────────────────────────
-    auto *sep = new QFrame(m_card);
-    sep->setObjectName(QStringLiteral("sep"));
-    sep->setFrameShape(QFrame::HLine);
-    lay->addWidget(sep);
+    m_sep = new QFrame(m_card);
+    m_sep->setObjectName(QStringLiteral("sep"));
+    m_sep->setFrameShape(QFrame::HLine);
+    lay->addWidget(m_sep);
 
-    auto *footer = new QHBoxLayout();
+    m_footer = new QWidget(m_card);
+    auto *footer = new QHBoxLayout(m_footer);
     footer->setContentsMargins(0, 2, 0, 0);
     footer->setSpacing(2);
     auto addFooter = [&](const QString &label, const QString &tip,
@@ -353,7 +357,7 @@ TrayPopup::TrayPopup(QWidget *parent)
     addFooter(QStringLiteral("Quit"), QStringLiteral("Quit"),
               &TrayPopup::quitRequested);
     footer->addStretch(1);
-    lay->addLayout(footer);
+    lay->addWidget(m_footer);
 
     applyStyle();
     resize(360, 420);
@@ -361,10 +365,10 @@ TrayPopup::TrayPopup(QWidget *parent)
 
 void TrayPopup::setVersion(const QString &version)
 {
+    // Версия больше НЕ выводится в заголовке попапа: там подсказка
+    // «Select the clip…» (как в старой версии). Версию храним на случай
+    // запроса (setVersion используется владельцем).
     m_version = version;
-    m_title->setText(version.isEmpty()
-                         ? QStringLiteral("SmartClip")
-                         : QStringLiteral("SmartClip %1").arg(version));
 }
 
 void TrayPopup::setDarkMode(bool dark)
@@ -594,10 +598,12 @@ void TrayPopup::setRows(const QVector<RowData> &rows)
         m_rowsLayout->insertWidget(m_rowsLayout->count() - 1, row);
     }
 
-    updateContentWidth();
+    updateContentSize(QGuiApplication::primaryScreen()
+                          ? QGuiApplication::primaryScreen()->availableGeometry()
+                          : QRect(0, 0, 1280, 800));
 }
 
-void TrayPopup::updateContentWidth()
+void TrayPopup::updateContentSize(const QRect &area)
 {
     // Ширина окна = самая широкая строка (текст + комментарий, БЕЗ обрезки)
     // + колонка кнопок действий справа + внутренние отступы карточки и
@@ -615,15 +621,35 @@ void TrayPopup::updateContentWidth()
     constexpr int kMinWidth = 360;                      // футер + заголовок
 
     // Верхняя граница — ширина экрана (окно не должно вылезать за край).
-    int screenW = 1280;
-    if (QScreen *s = QGuiApplication::primaryScreen())
-        screenW = s->availableGeometry().width();
-    const int kMaxWidth = qMax(kMinWidth, screenW - 16);
+    const int kMaxWidth = qMax(kMinWidth, area.width() - 16);
 
     int w = maxTextW + kActionsCol + kRowsRightMargin + kRowSpacing
             + kCardMargins + kScrollbar + 2 /* рамка карточки */;
     w = qBound(kMinWidth, w, kMaxWidth);
     setFixedWidth(w);
+
+    // ── Высота ─────────────────────────────────────────────────────────
+    // Максимум 2/3 высоты экрана. Если строки умещаются — высота по их
+    // числу (без пустого места); иначе — 2/3 экрана и вертикальный скроллбар.
+    const int maxH = qMax(200, area.height() * 2 / 3);
+
+    // Оценка высоты «содержимого» при текущей ширине.
+    int contentH = m_title ? m_title->heightForWidth(w - kCardMargins) : 0;
+    const int rowCount = m_rowsLayout->count() - 1;   // без финального stretch
+    if (rowCount > 0) {
+        contentH += rowCount * (kRowHeight + m_rowsLayout->spacing())
+                    + 2 /* запас на скроллбар/границы */;
+    }
+    if (rowCount == 0 && m_empty && m_empty->isVisible())
+        contentH += m_empty->sizeHint().height();
+
+    const int chromeH = (m_sep ? m_sep->sizeHint().height() : 0)
+                      + (m_footer ? m_footer->sizeHint().height() : 0)
+                      + kCardMargins + m_rowsLayout->contentsMargins().top()
+                      + m_rowsLayout->contentsMargins().bottom() + 2;
+
+    const int wanted = contentH + chromeH;
+    setFixedHeight(qMin(maxH, wanted));
 }
 
 void TrayPopup::showAt(const QPoint &anchor)
@@ -633,10 +659,9 @@ void TrayPopup::showAt(const QPoint &anchor)
         screen = QGuiApplication::primaryScreen();
     const QRect area = screen->availableGeometry();
 
-    // Стандартная высота попапа — 2/3 высоты экрана (запрос Лёши).
-    // Ширина — по содержимому (updateContentWidth), высота — по экрану.
-    constexpr int kHeightMin = 200;
-    setFixedHeight(qMax(kHeightMin, area.height() * 2 / 3));
+    // Ширина — по содержимому, высота — по числу строк, но не больше 2/3
+    // высоты экрана (при превышении — вертикальный скроллбар).
+    updateContentSize(area);
 
     // Встаём СРАЗУ ПОД точкой клика: левый край окна — от точки клика,
     // ниже — небольшой отступ. Если правый край выходит за экран — сдвигаем
