@@ -24,6 +24,7 @@
 #include <QPushButton>
 #include <QToolButton>
 #include <QLabel>
+#include <QScrollArea>
 
 class TestSmartClipApp : public QObject
 {
@@ -64,6 +65,7 @@ private slots:
     void testAboutDialogShowsNameVersionAuthorLicense();
     void testHelpDialogTitleHasNoVersion();
     void testTrayPopupAboutButton();
+    void testTrayPopupEmptyStateNotSquished();
 
 private:
     QApplication *m_app;
@@ -578,6 +580,42 @@ void TestSmartClipApp::testTrayPopupDeactivateHideOnlyOnWayland()
     } else {
         QVERIFY2(popup.isVisible(),
                  "На X11/macOS попап НЕ должен прятаться по WindowDeactivate");
+    }
+}
+
+// На чистой системе (пустая история) попап не должен быть сплющен: заглушка
+// «Clipboard history is empty» и кнопки футера обязаны быть видны целиком.
+// Регрессия: высота считалась по m_empty->isVisible() (false до show()) и
+// скролл-вьюпорт забирал высоту у заглушки → обрезка заголовка и кнопок.
+void TestSmartClipApp::testTrayPopupEmptyStateNotSquished()
+{
+    TrayPopup popup;
+    popup.setRows({});
+    popup.showAt(QPoint(200, 100));
+    QVERIFY(popup.isVisible());
+
+    auto *empty = popup.findChild<QLabel *>(QStringLiteral("empty"));
+    QVERIFY2(empty != nullptr, "Empty placeholder label must exist");
+    QVERIFY2(empty->isVisible(), "Empty placeholder must be visible when history is empty");
+    // Заглушка не обрезана: её высота не меньше собственного sizeHint.
+    QVERIFY2(empty->height() >= empty->sizeHint().height(),
+             qPrintable(QStringLiteral("empty label squished: %1 < %2")
+                            .arg(empty->height()).arg(empty->sizeHint().height())));
+
+    // Область списка при пустой истории скрыта (не отъедает высоту).
+    auto *scroll = popup.findChild<QScrollArea *>(QStringLiteral("scroll"));
+    QVERIFY2(scroll != nullptr, "Scroll area must exist");
+    QVERIFY2(!scroll->isVisible(), "Scroll area must be hidden when history is empty");
+
+    // Кнопки футера не сплющены.
+    for (QPushButton *b : popup.findChildren<QPushButton *>()) {
+        if (b->objectName() == QStringLiteral("footerBtn")
+            || b->objectName() == QStringLiteral("hideBtn")) {
+            QVERIFY2(b->height() >= b->sizeHint().height(),
+                     qPrintable(QStringLiteral("footer button '%1' squished: %2 < %3")
+                                    .arg(b->text()).arg(b->height())
+                                    .arg(b->sizeHint().height())));
+        }
     }
 }
 

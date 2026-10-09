@@ -6,7 +6,7 @@
 ## About
 
 - **Название:** SmartClip — Clipboard History Manager
-- **Версия:** 1.0.16 (актуальное значение — в файле [`VERSION`](VERSION))
+- **Версия:** 1.0.17 (актуальное значение — в файле [`VERSION`](VERSION))
 - **Автор:** Aleksey Zhmikhov ([@yoshapihoff](https://github.com/yoshapihoff))
 - **Лицензия:** [MIT](LICENSE)
 

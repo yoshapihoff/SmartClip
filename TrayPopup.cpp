@@ -293,12 +293,13 @@ TrayPopup::TrayPopup(QWidget *parent)
     m_title->setWordWrap(true);
     lay->addWidget(m_title);
 
-    auto *scroll = new QScrollArea(m_card);
-    scroll->setObjectName(QStringLiteral("scroll"));
-    scroll->setWidgetResizable(true);
-    scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scroll->viewport()->setAutoFillBackground(false);
+    m_scroll = new QScrollArea(m_card);
+    m_scroll->setObjectName(QStringLiteral("scroll"));
+    m_scroll->setWidgetResizable(true);
+    m_scroll->setFrameShape(QFrame::NoFrame);
+    m_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_scroll->viewport()->setAutoFillBackground(false);
+    auto *scroll = m_scroll;
 
     auto *rowsHost = new QWidget(scroll);
     rowsHost->setObjectName(QStringLiteral("rowsHost"));
@@ -543,6 +544,11 @@ void TrayPopup::setRows(const QVector<RowData> &rows)
     m_rows = rows;   // запоминаем для пересборки при смене темы
     clearRows();
     m_empty->setVisible(rows.isEmpty());
+    // При пустой истории прячем область списка: иначе скролл-вьюпорт всё
+    // равно забирает высоту у заглушки (QSizePolicy::Expanding), и "Clipboard
+    // history is empty" не показывается (её бокс выходит меньше padding'а).
+    if (m_scroll)
+        m_scroll->setVisible(!rows.isEmpty());
 
     const Palette p = m_dark ? darkPalette() : lightPalette();
     const QColor iconFg(p.iconFg);
@@ -658,7 +664,12 @@ void TrayPopup::updateContentSize(const QRect &area)
         // Строки + промежутки между ними (после последней — нет).
         contentH += rowCount * kRowHeight + (rowCount - 1) * rowSpacing;
     }
-    if (rowCount == 0 && m_empty && m_empty->isVisible())
+    // Пустая история: показываем заглушку (m_empty). Её высоту считаем по
+    // данным (rowCount == 0), а НЕ по m_empty->isVisible(): updateContentSize
+    // вызывается из setRows ещё ДО show(), а у виджета со скрытым родителем
+    // isVisible() == false — тогда высота заглушки не учитывалась и окно
+    // выходило сплющенным (обрезка заголовка и кнопок футера).
+    if (rowCount == 0 && m_empty)
         contentH += m_empty->sizeHint().height();
 
     // Chrome: разделитель + футер + отступы карточки.

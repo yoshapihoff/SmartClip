@@ -8,6 +8,7 @@
 class QFrame;
 class QVBoxLayout;
 class QLabel;
+class QScrollArea;
 
 /**
  * TrayPopup — СВОЁ всплывающее окно вместо меню десктопа.
@@ -80,6 +81,7 @@ private:
 
     QFrame *m_card = nullptr;
     QFrame *m_sep = nullptr;
+    QScrollArea *m_scroll = nullptr;   // список истории (скрыт при пустой истории)
     QWidget *m_footer = nullptr;
     QVBoxLayout *m_rowsLayout = nullptr;
     QLabel *m_title = nullptr;
