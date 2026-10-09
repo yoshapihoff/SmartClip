@@ -3,6 +3,13 @@
 Кроссплатформенный менеджер истории буфера обмена, живущий в system tray.
 Поддерживает macOS и Linux.
 
+## About
+
+- **Название:** SmartClip — Clipboard History Manager
+- **Версия:** 1.0.16 (актуальное значение — в файле [`VERSION`](VERSION))
+- **Автор:** Aleksey Zhmikhov ([@yoshapihoff](https://github.com/yoshapihoff))
+- **Лицензия:** [MIT](LICENSE)
+
 ## Возможности
 
 - Сохранение истории буфера обмена в system tray-меню
@@ -426,6 +433,7 @@ master/slave: usage=max, LWW по меткам правки для mask/comment/
 ```
 .
 ├── CMakeLists.txt          # Основной CMake
+├── LICENSE                 # Лицензия (MIT)
 ├── VERSION                 # Версия приложения (единственный источник правды)
 ├── Version.h               # C++-обёртка над версией (SMARTCLIP_VERSION_STRING)
 ├── .githooks/pre-commit    # Авто-бамп patch-версии перед коммитом
