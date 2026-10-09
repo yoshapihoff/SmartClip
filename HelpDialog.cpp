@@ -10,7 +10,7 @@ HelpDialog::HelpDialog(QWidget *parent)
     : QDialog(parent)
 {
     setupUI();
-    setWindowTitle("Help — SmartClip");
+    setWindowTitle(QStringLiteral("SmartClip Help"));
     setMinimumWidth(520);
     // Справка длинная — даём окну вменяемый размер, остальное прокручивается.
     resize(560, 640);
@@ -37,7 +37,7 @@ void HelpDialog::setupUI()
 
     // --- Заголовок ---
     QLabel *titleLabel = new QLabel(
-        QString("SmartClip %1 — quick reference").arg(SMARTCLIP_VERSION_STRING), this);
+        QStringLiteral("SmartClip \u2014 quick reference"), this);
     QFont titleFont = titleLabel->font();
     titleFont.setPointSize(titleFont.pointSize() + 4);
     titleFont.setBold(true);

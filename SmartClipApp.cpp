@@ -2,6 +2,7 @@
 #include "SettingsManager.h"
 #include "SettingsDialog.h"
 #include "HelpDialog.h"
+#include "AboutDialog.h"
 #include "Version.h"
 #include "HistoryManager.h"
 #include "LaunchAgentManager.h"
@@ -156,6 +157,9 @@ SmartClipApp::SmartClipApp(QObject *parent)
     helpAction = new QAction("Help", this);
     connect(helpAction, &QAction::triggered, this, &SmartClipApp::onHelp);
 
+    aboutAction = new QAction("About", this);
+    connect(aboutAction, &QAction::triggered, this, &SmartClipApp::onAbout);
+
     quitAction = new QAction("Quit", this);
     connect(quitAction, &QAction::triggered, this, &SmartClipApp::onQuit);
 
@@ -212,6 +216,8 @@ SmartClipApp::SmartClipApp(QObject *parent)
                 &SmartClipApp::onSettings);
         connect(trayPopup, &TrayPopup::helpRequested, this,
                 &SmartClipApp::onHelp);
+        connect(trayPopup, &TrayPopup::aboutRequested, this,
+                &SmartClipApp::onAbout);
         connect(trayPopup, &TrayPopup::quitRequested, this,
                 &SmartClipApp::onQuit);
 
@@ -411,6 +417,15 @@ void SmartClipApp::onHelp()
     if (trayPopup)
         trayPopup->hide();
     HelpDialog dialog;
+    dialog.exec();
+}
+
+void SmartClipApp::onAbout()
+{
+    // Как справка/настройки: модальный диалог — попап прячем.
+    if (trayPopup)
+        trayPopup->hide();
+    AboutDialog dialog;
     dialog.exec();
 }
 
@@ -835,7 +850,11 @@ void SmartClipApp::rebuildMenu()
     if (helpAction) {
         trayMenu.addAction(helpAction);
     }
-    
+
+    if (aboutAction) {
+        trayMenu.addAction(aboutAction);
+    }
+
     if (quitAction) {
         trayMenu.addAction(quitAction);
     }

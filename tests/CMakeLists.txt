@@ -108,6 +108,7 @@ qt_add_executable(SmartClipAppTest
     SmartClipAppTest.cpp
     ${CMAKE_SOURCE_DIR}/SmartClipApp.cpp
     ${CMAKE_SOURCE_DIR}/HelpDialog.cpp
+    ${CMAKE_SOURCE_DIR}/AboutDialog.cpp
     ${CMAKE_SOURCE_DIR}/SettingsManager.cpp
     ${CMAKE_SOURCE_DIR}/SettingsDialog.cpp
     ${CMAKE_SOURCE_DIR}/HistoryManager.cpp

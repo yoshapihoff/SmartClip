@@ -35,6 +35,7 @@ qt_add_executable(SmartClip
     SmartClipApp.cpp
     SettingsManager.cpp
     HelpDialog.cpp
+    AboutDialog.cpp
     SettingsDialog.cpp
     HistoryManager.cpp
     Crypto.cpp
@@ -47,6 +48,7 @@ qt_add_executable(SmartClip
     SmartClipApp.h
     SettingsManager.h
     HelpDialog.h
+    AboutDialog.h
     SettingsDialog.h
     HistoryManager.h
     Crypto.h

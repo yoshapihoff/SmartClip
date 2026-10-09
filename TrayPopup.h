@@ -21,7 +21,7 @@ class QLabel;
  *   • список истории: клик — копировать;
  *   • кнопки строки: ★ избранное, 👁 маска, ✎ комментарий, ✕ удалить
  *     (иконки рисуются векторно, не зависят от шрифтов);
- *   • футер: Clear / Settings / Help / Quit.
+ *   • футер: Hide / Clear / Settings / Help / About / Quit.
  */
 class TrayPopup final : public QWidget
 {
@@ -56,6 +56,7 @@ signals:
     void clearRequested();
     void settingsRequested();
     void helpRequested();
+    void aboutRequested();
     void quitRequested();
 
 protected:

@@ -369,6 +369,8 @@ TrayPopup::TrayPopup(QWidget *parent)
               &TrayPopup::settingsRequested);
     addFooter(QStringLiteral("Help"), QStringLiteral("Help"),
               &TrayPopup::helpRequested);
+    addFooter(QStringLiteral("About"), QStringLiteral("About SmartClip"),
+              &TrayPopup::aboutRequested);
     addFooter(QStringLiteral("Quit"), QStringLiteral("Quit"),
               &TrayPopup::quitRequested);
     footer->addStretch(1);

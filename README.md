@@ -171,7 +171,9 @@ make test                  # тесты (offscreen)
 блок **Network sync (MQTT)** (см. ниже), кнопки `OK` / `Cancel`. Подписи заданы
 в коде явно — Qt не подменяет их переводом по локали системы.
 
-Та же справка доступна в приложении: **Help** в меню трея.
+Та же справка доступна в приложении: **Help** в меню трея. Рядом — пункт
+**About**: небольшое окно с иконкой, названием, версией, автором и лицензией.
+Оба пункта есть и в меню трея, и в футере попапа.
 
 ## Шифрование истории
 
@@ -301,7 +303,7 @@ make test                  # тесты (offscreen)
 
 Как это работает технически: CMake читает `VERSION` до `project()`, поэтому
 `PROJECT_VERSION` совпадает с файлом; версия прокидывается в код через
-`SMARTCLIP_VERSION` (см. `Version.h`), показывается в справке (Help) и в
+`SMARTCLIP_VERSION` (см. `Version.h`), показывается в окне **About** и в
 подсказке трея, и задаёт `CFBundleShortVersionString`/`CFBundleVersion` для
 macOS-бандла.
 
@@ -454,6 +456,7 @@ master/slave: usage=max, LWW по меткам правки для mask/comment/
 ├── SettingsManager.cpp/h   # Настройки
 ├── SettingsDialog.cpp/h    # Диалог настроек
 ├── HelpDialog.cpp/h        # Справочный диалог
+├── AboutDialog.cpp/h       # Окно «О программе» (название/версия/автор)
 ├── LaunchAgentManager.cpp/h # Автостарт (macOS/Linux)
 └── main.cpp                # Точка входа
 ```

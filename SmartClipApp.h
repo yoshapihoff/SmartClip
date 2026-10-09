@@ -14,6 +14,7 @@ class QWidget;
 class SettingsManager;
 class SettingsDialog;
 class HelpDialog;
+class AboutDialog;
 class HistoryManager;
 class LaunchAgentManager;
 class MqttClient;
@@ -39,6 +40,7 @@ private slots:
     void pollClipboard();
     void onSettings();
     void onHelp();
+    void onAbout();
     void onQuit();
     void onClearHistory();
     void onDeleteItem(const QString &text);
@@ -102,6 +104,7 @@ private:
     QAction *titleAction = nullptr;
     QAction *settingsAction = nullptr;
     QAction *helpAction = nullptr;
+    QAction *aboutAction = nullptr;
     QAction *quitAction = nullptr;
     QAction *clearHistoryAction = nullptr;
     QAction *favoriteModeAction = nullptr;

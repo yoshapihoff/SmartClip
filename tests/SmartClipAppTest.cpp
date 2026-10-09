@@ -19,8 +19,11 @@
 #include "../HistoryManager.h"
 #include "../LaunchAgentManager.h"
 #include "../TrayPopup.h"
+#include "../AboutDialog.h"
+#include "../HelpDialog.h"
 #include <QPushButton>
 #include <QToolButton>
+#include <QLabel>
 
 class TestSmartClipApp : public QObject
 {
@@ -58,6 +61,9 @@ private slots:
     void testTrayPopupRowActionDoesNotHide();
     void testTrayPopupWidthFitsContent();
     void testTrayPopupDeactivateHideOnlyOnWayland();
+    void testAboutDialogShowsNameVersionAuthorLicense();
+    void testHelpDialogTitleHasNoVersion();
+    void testTrayPopupAboutButton();
 
 private:
     QApplication *m_app;
@@ -573,6 +579,71 @@ void TestSmartClipApp::testTrayPopupDeactivateHideOnlyOnWayland()
         QVERIFY2(popup.isVisible(),
                  "На X11/macOS попап НЕ должен прятаться по WindowDeactivate");
     }
+}
+
+// Окно «О программе»: название, версия, автор, лицензия. Заголовок — без версии.
+void TestSmartClipApp::testAboutDialogShowsNameVersionAuthorLicense()
+{
+    AboutDialog dlg;
+
+    auto *name = dlg.findChild<QLabel *>(QStringLiteral("aboutName"));
+    QVERIFY2(name != nullptr, "AboutDialog must have the app name label");
+    QCOMPARE(name->text(), QStringLiteral("SmartClip"));
+
+    auto *ver = dlg.findChild<QLabel *>(QStringLiteral("aboutVersion"));
+    QVERIFY2(ver != nullptr, "AboutDialog must show the version");
+    QVERIFY2(ver->text().startsWith(QStringLiteral("Version ")),
+             qPrintable(QStringLiteral("version label: %1").arg(ver->text())));
+
+    auto *author = dlg.findChild<QLabel *>(QStringLiteral("aboutAuthor"));
+    QVERIFY2(author != nullptr, "AboutDialog must show the author");
+    QVERIFY2(author->text().contains(QStringLiteral("Aleksey Zhmikhov")),
+             qPrintable(author->text()));
+
+    auto *lic = dlg.findChild<QLabel *>(QStringLiteral("aboutLicense"));
+    QVERIFY2(lic != nullptr, "AboutDialog must show the license");
+    QVERIFY2(lic->text().contains(QStringLiteral("MIT")), qPrintable(lic->text()));
+
+    // Заголовок окна НЕ содержит версию.
+    QVERIFY2(!dlg.windowTitle().contains(QStringLiteral("1.")),
+             qPrintable(dlg.windowTitle()));
+
+    // Кнопка Close закрывает диалог.
+    auto *close = dlg.findChild<QPushButton *>(QStringLiteral("aboutClose"));
+    QVERIFY2(close != nullptr, "AboutDialog must have a Close button");
+    dlg.show();
+    QVERIFY(dlg.isVisible());
+    close->click();
+    QVERIFY2(!dlg.isVisible(), "Close must dismiss the About dialog");
+}
+
+// Заголовок справки — без версии (версия переехала в About).
+void TestSmartClipApp::testHelpDialogTitleHasNoVersion()
+{
+    HelpDialog dlg;
+    QCOMPARE(dlg.windowTitle(), QStringLiteral("SmartClip Help"));
+    QVERIFY2(!dlg.windowTitle().contains(QStringLiteral("1.")),
+             qPrintable(dlg.windowTitle()));
+}
+
+// Кнопка About в футере попапа: испускает aboutRequested и прячет окно.
+void TestSmartClipApp::testTrayPopupAboutButton()
+{
+    TrayPopup popup;
+    popup.setRows({});
+    popup.showAt(QPoint(200, 100));
+    QVERIFY(popup.isVisible());
+
+    QPushButton *aboutBtn = nullptr;
+    for (QPushButton *b : popup.findChildren<QPushButton *>()) {
+        if (b->text() == QStringLiteral("About")) { aboutBtn = b; break; }
+    }
+    QVERIFY2(aboutBtn != nullptr, "Footer must contain the About button");
+
+    QSignalSpy aboutSpy(&popup, &TrayPopup::aboutRequested);
+    aboutBtn->click();
+    QCOMPARE(aboutSpy.count(), 1);
+    QVERIFY2(!popup.isVisible(), "About must hide the popup");
 }
 
 QTEST_MAIN(TestSmartClipApp)
