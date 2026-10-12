@@ -582,6 +582,51 @@ void HistoryManager::removeItem(const QString &text, qint64 whenMs)
     m_dirty = true;
 }
 
+bool HistoryManager::renameItem(const QString &oldText, const QString &newText)
+{
+    if (oldText.isEmpty() || oldText == newText)
+        return false;
+
+    auto src = std::find_if(m_history.begin(), m_history.end(),
+                            [&oldText](const HistoryItem &it) {
+                                return it.text == oldText;
+                            });
+    if (src == m_history.end())
+        return false;
+
+    const qint64 nowMs = nowWallMs();
+
+    auto dst = std::find_if(m_history.begin(), m_history.end(),
+                            [&newText](const HistoryItem &it) {
+                                return it.text == newText;
+                            });
+    if (dst != m_history.end()) {
+        // Новая строка уже есть: переносим недостающие свойства на неё,
+        // а прежнюю запись убираем (объединение записи истории).
+        dst->usageCount += src->usageCount;
+        if (src->favoriteColorIndex >= 0 && dst->favoriteColorIndex < 0) {
+            dst->favoriteColorIndex = src->favoriteColorIndex;
+            dst->favChangedAtMs = nowMs;
+        }
+        if (src->maskInMenu && !dst->maskInMenu) {
+            dst->maskInMenu = true;
+            dst->maskChangedAtMs = nowMs;
+        }
+        if (!src->comment.isEmpty() && dst->comment.isEmpty()) {
+            dst->comment = src->comment;
+            dst->commentChangedAtMs = nowMs;
+        }
+        m_history.erase(src);
+    } else {
+        src->text = newText;
+        // usageCount НЕ увеличиваем: это не новое копирование, а правка записи.
+        // Метку времени изменения не трогаем: свойства остались прежними.
+    }
+    m_dirty = true;
+    sortHistory();
+    return true;
+}
+
 void HistoryManager::setState(const QVector<HistoryItem> &items,
                               const QHash<QString, qint64> &tombstones)
 {

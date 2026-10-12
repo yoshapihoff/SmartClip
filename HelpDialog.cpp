@@ -154,8 +154,26 @@ void HelpDialog::setupUI()
     delText->setWordWrap(true);
     mainLayout->addWidget(delText);
 
-    // --- 5. Копирование и порядок в истории ---
-    QLabel *rankTitle = new QLabel("<b>5. Copying and how items are ranked</b>", this);
+    // --- 5. Смена раскладки текста ---
+    QLabel *layTitle = new QLabel(
+        "<b>5. Change the keyboard layout of a clip</b>", this);
+    mainLayout->addWidget(layTitle);
+
+    QLabel *layText = new QLabel(
+        "If a clip was typed in the wrong keyboard layout (for example "
+        "<i>Ghbdtn</i> instead of <i>Привет</i>), hover its row in the popup and "
+        "use the <b>keyboard</b> button (right after the ★ favorite button). "
+        "Each click re-types the clip in the next layout installed in your system "
+        "(cycling), puts the result on the clipboard and updates the row in place. "
+        "Favorites, color, masking and comments are kept. The button appears only "
+        "when the system has two or more layouts.",
+        this
+    );
+    layText->setWordWrap(true);
+    mainLayout->addWidget(layText);
+
+    // --- 6. Копирование и порядок в истории ---
+    QLabel *rankTitle = new QLabel("<b>6. Copying and how items are ranked</b>", this);
     mainLayout->addWidget(rankTitle);
 
     QLabel *rankText = new QLabel(
@@ -171,8 +189,8 @@ void HelpDialog::setupUI()
     rankText->setWordWrap(true);
     mainLayout->addWidget(rankText);
 
-    // --- 6. Безопасность / хранение ---
-    QLabel *secTitle = new QLabel("<b>6. Storage and security</b>", this);
+    // --- 7. Безопасность / хранение ---
+    QLabel *secTitle = new QLabel("<b>7. Storage and security</b>", this);
     mainLayout->addWidget(secTitle);
 
     QLabel *secText = new QLabel(

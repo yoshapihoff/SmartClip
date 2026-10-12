@@ -509,6 +509,16 @@ QIcon TrayPopup::glyph(const QString &kind, const QColor &color,
         p.drawEllipse(QPointF(16, 16), 3.2, 3.2);
         p.setPen(QPen(color, 2.2, Qt::SolidLine, Qt::RoundCap));
         p.drawLine(QPointF(7, 25), QPointF(25, 7));
+    } else if (kind == QLatin1String("keyboard")) {
+        // Клавиатура: контур-корпус + ряд клавиш + пробел.
+        p.setBrush(Qt::NoBrush);
+        p.setPen(QPen(color, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.drawRoundedRect(QRectF(3.5, 10.5, 25, 13), 2.0, 2.0);
+        p.setPen(Qt::NoPen);
+        p.setBrush(color);
+        for (int i = 0; i < 5; ++i)
+            p.drawRoundedRect(QRectF(6.5 + i * 4.2, 13.5, 2.4, 2.4), 0.6, 0.6);
+        p.drawRoundedRect(QRectF(9.5, 18.0, 13, 2.6), 0.8, 0.8);   // пробел
     } else if (kind == QLatin1String("pencil")) {
         // Карандаш под 45°.
         p.save();
@@ -529,6 +539,13 @@ QIcon TrayPopup::glyph(const QString &kind, const QColor &color,
     return QIcon(pm);
 }
 
+int TrayPopup::actionColumnCount() const
+{
+    // 4 базовых действия (★ избранное, 👁 маска, ✎ комментарий, ✕ удалить)
+    // плюс смена раскладки, если она доступна в системе.
+    return m_layoutConvert ? 5 : 4;
+}
+
 void TrayPopup::clearRows()
 {
     while (m_rowsLayout->count() > 1) {
@@ -542,6 +559,14 @@ void TrayPopup::clearRows()
 void TrayPopup::setRows(const QVector<RowData> &rows)
 {
     m_rows = rows;   // запоминаем для пересборки при смене темы
+    // Кнопка смены раскладки есть только если это осмысленно (≥ 2 раскладок).
+    m_layoutConvert = false;
+    for (const RowData &r : rows) {
+        if (r.layoutConvertible) {
+            m_layoutConvert = true;
+            break;
+        }
+    }
     clearRows();
     m_empty->setVisible(rows.isEmpty());
     // При пустой истории прячем область списка: иначе скролл-вьюпорт всё
@@ -572,7 +597,7 @@ void TrayPopup::setRows(const QVector<RowData> &rows)
         });
 
         auto *actions = new QWidget(m_card);
-        actions->setFixedWidth(kActionWidth * 4 + 6);
+        actions->setFixedWidth(kActionWidth * actionColumnCount() + 6);
         auto *al = new QHBoxLayout(actions);
         al->setContentsMargins(0, 0, 0, 0);
         al->setSpacing(0);
@@ -603,6 +628,11 @@ void TrayPopup::setRows(const QVector<RowData> &rows)
         const QColor danger(p.danger);
         addAction(QStringLiteral("star"), QStringLiteral("Favorite"), r.favorite,
                   iconFg, &TrayPopup::favoriteToggled);
+        if (m_layoutConvert) {
+            addAction(QStringLiteral("keyboard"),
+                      QStringLiteral("Change text keyboard layout"), false,
+                      iconFg, &TrayPopup::layoutConvertRequested);
+        }
         addAction(r.masked ? QStringLiteral("eyeOff") : QStringLiteral("eye"),
                   QStringLiteral("Mask / reveal"), false, iconFg,
                   &TrayPopup::maskToggled);
@@ -636,7 +666,8 @@ void TrayPopup::updateContentSize(const QRect &area)
     for (ElidedLabel *l : labels)
         maxTextW = qMax(maxTextW, l->contentWidth());
 
-    constexpr int kActionsCol = kActionWidth * 4 + 6;   // колонка кнопок строки
+    constexpr int kActionsRowMargin = 6;               // запас колонки кнопок
+    const int kActionsCol = kActionWidth * actionColumnCount() + kActionsRowMargin;
     constexpr int kRowsRightMargin = 5;                 // m_rowsLayout right
     constexpr int kRowSpacing = 2;                      // HBox spacing
     constexpr int kCardMargins = 6 * 2;                 // lay margins карточки

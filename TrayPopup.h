@@ -37,6 +37,9 @@ public:
         bool favorite = false;
         QColor color;            // цвет маркера избранного (если favorite)
         bool masked = false;     // сейчас ли маскируется (для иконки «глаз»)
+        /** Доступна ли смена раскладки текста (в системе ≥ 2 раскладок).
+         *  false — кнопка раскладки в строке не показывается. */
+        bool layoutConvertible = false;
     };
 
     explicit TrayPopup(QWidget *parent = nullptr);
@@ -51,6 +54,8 @@ public:
 signals:
     void clipChosen(const QString &text);
     void favoriteToggled(const QString &text);
+    /** Сменить раскладку текста записи (перекодировать в следующую). */
+    void layoutConvertRequested(const QString &text);
     void maskToggled(const QString &text);
     void commentRequested(const QString &text);
     void deleteRequested(const QString &text);
@@ -78,6 +83,8 @@ private:
      */
     void updateContentSize(const QRect &availableArea);
     QIcon glyph(const QString &kind, const QColor &color, bool filled = false) const;
+    /** Число кнопок-действий в строке (растёт, если есть смена раскладки). */
+    int actionColumnCount() const;
 
     QFrame *m_card = nullptr;
     QFrame *m_sep = nullptr;
@@ -92,4 +99,6 @@ private:
     // темы на лету (цвет текста строк задаётся явно из палитры, а QSS его
     // не перекрашивает).
     QVector<RowData> m_rows;
+    /** Показывать ли кнопку смены раскладки (≥ 2 раскладок в системе). */
+    bool m_layoutConvert = false;
 };

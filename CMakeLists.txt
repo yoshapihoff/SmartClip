@@ -44,6 +44,7 @@ qt_add_executable(SmartClip
     SyncManager.cpp
     LaunchAgentManager.cpp
     TrayPopup.cpp
+    LayoutConverter.cpp
     Version.h
     SmartClipApp.h
     SettingsManager.h
@@ -57,6 +58,7 @@ qt_add_executable(SmartClip
     SyncManager.h
     LaunchAgentManager.h
     TrayPopup.h
+    LayoutConverter.h
     resources.qrc
 )
 
@@ -70,6 +72,26 @@ if(OpenSSL_FOUND)
     target_link_libraries(SmartClip PRIVATE OpenSSL::Crypto)
     target_compile_definitions(SmartClip PRIVATE SMARTCLIP_HAVE_OPENSSL)
     message(STATUS "SmartClip: OpenSSL найден — шифрование истории включено")
+endif()
+
+# libxkbcommon — построение карт раскладок для смены раскладки текста (Linux).
+# Библиотека есть в любой системе с Qt6 GUI (Qt сам её тянет), но подключаем
+# ОПЦИОНАЛЬНО: без неё сборка не падает, а функция использует статический
+# фолбэк us↔ru (см. LayoutConverter.cpp). Внешние CLI (xkbcli/setxkbmap) для
+# карт НЕ нужны — только для чтения списка раскладок рабочего стола.
+if(UNIX AND NOT APPLE)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(XKB QUIET xkbcommon)
+    endif()
+    if(XKB_FOUND)
+        target_compile_definitions(SmartClip PRIVATE SMARTCLIP_HAVE_XKB)
+        target_include_directories(SmartClip PRIVATE ${XKB_INCLUDE_DIRS})
+        target_link_libraries(SmartClip PRIVATE ${XKB_LIBRARIES})
+        message(STATUS "SmartClip: libxkbcommon найден — смена раскладки по системным раскладкам")
+    else()
+        message(STATUS "SmartClip: libxkbcommon НЕ найден — смена раскладки в режиме us↔ru")
+    endif()
 endif()
 
 # Прокидываем версию в код (Version.h → SMARTCLIP_VERSION_STRING) и показываем в логе.
@@ -94,6 +116,13 @@ else()
 endif()
 
 if(APPLE)
+    # Carbon — TIS (Text Input Sources) и UCKeyTranslate для смены раскладки
+    # текста на macOS. Фреймворк системный, API помечен deprecated, но рабочий;
+    # глушим варнинги, чтобы сборка оставалась чистой.
+    target_link_libraries(SmartClip PRIVATE "-framework Carbon")
+    target_compile_options(SmartClip PRIVATE
+        "-Wno-deprecated-declarations")
+
     set(APP_ICON "${CMAKE_SOURCE_DIR}/icons/SmartClip.icns")
     if(EXISTS "${APP_ICON}")
         set_source_files_properties(${APP_ICON} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")

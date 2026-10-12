@@ -60,6 +60,28 @@ target_link_libraries(HistoryManagerTest
         Qt6::Test
 )
 
+qt_add_executable(LayoutConverterTest
+    LayoutConverterTest.cpp
+    ${CMAKE_SOURCE_DIR}/LayoutConverter.cpp
+)
+
+target_link_libraries(LayoutConverterTest
+    PRIVATE
+        Qt6::Test
+)
+
+if(UNIX AND NOT APPLE)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(XKB QUIET xkbcommon)
+    endif()
+    if(XKB_FOUND)
+        target_compile_definitions(LayoutConverterTest PRIVATE SMARTCLIP_HAVE_XKB)
+        target_include_directories(LayoutConverterTest PRIVATE ${XKB_INCLUDE_DIRS})
+        target_link_libraries(LayoutConverterTest PRIVATE ${XKB_LIBRARIES})
+    endif()
+endif()
+
 if(OpenSSL_FOUND)
     target_link_libraries(HistoryManagerTest PRIVATE OpenSSL::Crypto)
     target_compile_definitions(HistoryManagerTest PRIVATE SMARTCLIP_HAVE_OPENSSL)
@@ -118,6 +140,7 @@ qt_add_executable(SmartClipAppTest
     ${CMAKE_SOURCE_DIR}/SyncManager.cpp
     ${CMAKE_SOURCE_DIR}/LaunchAgentManager.cpp
     ${CMAKE_SOURCE_DIR}/TrayPopup.cpp
+    ${CMAKE_SOURCE_DIR}/LayoutConverter.cpp
 )
 
 target_link_libraries(SmartClipAppTest
@@ -126,6 +149,19 @@ target_link_libraries(SmartClipAppTest
         Qt6::Svg
         Qt6::Test
 )
+
+# libxkbcommon для LayoutConverter (Linux): карты раскладок. Опционально.
+if(UNIX AND NOT APPLE)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(XKB QUIET xkbcommon)
+    endif()
+    if(XKB_FOUND)
+        target_compile_definitions(SmartClipAppTest PRIVATE SMARTCLIP_HAVE_XKB)
+        target_include_directories(SmartClipAppTest PRIVATE ${XKB_INCLUDE_DIRS})
+        target_link_libraries(SmartClipAppTest PRIVATE ${XKB_LIBRARIES})
+    endif()
+endif()
 
 if(OpenSSL_FOUND)
     target_link_libraries(SmartClipAppTest PRIVATE OpenSSL::Crypto)
@@ -143,3 +179,4 @@ add_test(NAME HistoryManagerTest COMMAND HistoryManagerTest)
 add_test(NAME LaunchAgentManagerTest COMMAND LaunchAgentManagerTest)
 add_test(NAME SmartClipAppTest COMMAND SmartClipAppTest)
 add_test(NAME SyncEngineTest COMMAND SyncEngineTest)
+add_test(NAME LayoutConverterTest COMMAND LayoutConverterTest)

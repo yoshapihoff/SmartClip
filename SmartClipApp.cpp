@@ -10,6 +10,7 @@
 #include "MqttClient.h"
 #include "SyncManager.h"
 #include "TrayPopup.h"
+#include "LayoutConverter.h"
 #include <QApplication>
 #include <QAction>
 #include <QClipboard>
@@ -192,6 +193,8 @@ SmartClipApp::SmartClipApp(QObject *parent)
                 });
         connect(trayPopup, &TrayPopup::maskToggled, this,
                 [this](const QString &text) { toggleItemMask(text); refreshTrayPopup(); });
+        connect(trayPopup, &TrayPopup::layoutConvertRequested, this,
+                &SmartClipApp::onConvertLayout);
         connect(trayPopup, &TrayPopup::commentRequested, this,
                 [this](const QString &text) {
                     QString newComment;
@@ -551,6 +554,7 @@ void SmartClipApp::onClearHistory()
     if (historyManager->history().isEmpty()) {
         favoriteItemColors.clear();
     }
+    layoutOfItem.clear();
     persistHistory();
     notifySync();   // удаления (tombstone'ы) должны доехать до других устройств
     rebuildMenu();
@@ -575,6 +579,49 @@ void SmartClipApp::onToggleFavorite(const QString &text)
     persistHistory();   // избранное должно пережить перезапуск
     notifySync();
     rebuildMenu();
+}
+
+void SmartClipApp::onConvertLayout(const QString &text)
+{
+    const QStringList layouts = LayoutConverter::availableLayouts();
+    if (layouts.size() < 2) {
+        refreshTrayPopup();
+        return;
+    }
+
+    // Текущая раскладка именно этого элемента. Если мы её ещё не помним
+    // (запись только что появилась/пришла по синку) — определяем по самому
+    // тексту, чтобы работали оба направления (us→ru и ru→us).
+    QString current = layoutOfItem.value(text);
+    if (!layouts.contains(current))
+        current = LayoutConverter::guessLayout(text);
+    if (current.isEmpty())
+        current = layouts.first();
+    const QString next = LayoutConverter::nextLayout(current);
+    const QString converted = LayoutConverter::convert(text, current, next);
+    if (converted.isEmpty()) {
+        // Ни один символ не удалось перекодировать (например, в тексте нет
+        // букв, которые есть на клавишах исходной раскладки) — буфер не трогаем.
+        refreshTrayPopup();
+        return;
+    }
+
+    // Заменяем текст записи, перенося избранное/маску/комментарий/счётчик.
+    const bool removedPrefix = historyManager->renameItem(text, converted);
+    if (removedPrefix)
+        releaseFavoriteColor(text);
+    layoutOfItem.remove(text);
+    layoutOfItem[converted] = next;
+
+    // Новый текст сразу в буфер — как при выборе элемента истории.
+    if (QClipboard *clipboard = QApplication::clipboard()) {
+        ignoreNextClipboardChange = true;
+        clipboard->setText(converted, QClipboard::Clipboard);
+    }
+
+    persistHistory();
+    notifySync();
+    refreshTrayPopup();   // попап пересобирается на месте с новым текстом
 }
 
 int SmartClipApp::getFavoriteColorIndex(const QString &text)
@@ -610,6 +657,7 @@ void SmartClipApp::onDeleteItem(const QString &text)
     // master/slave — tombstone уезжает по MQTT как обычное состояние.
     historyManager->removeItem(text);
     releaseFavoriteColor(text);
+    layoutOfItem.remove(text);
     persistHistory();
     notifySync();
     // rebuildMenu() сделает вызвавший обработчик (после сброса режима).
@@ -878,6 +926,8 @@ void SmartClipApp::refreshTrayPopup()
     QVector<TrayPopup::RowData> rows;
     const auto &history = historyManager->history();
     rows.reserve(history.size());
+    // Кнопка смены раскладки появляется, только если в системе ≥ 2 раскладки.
+    const bool layoutOk = LayoutConverter::available();
     for (const auto &item : history) {
         TrayPopup::RowData r;
         r.text = item.text;
@@ -890,6 +940,7 @@ void SmartClipApp::refreshTrayPopup()
         // подстраивается под содержимое (updateContentWidth).
         r.comment = item.comment;
         r.masked = item.maskInMenu;
+        r.layoutConvertible = layoutOk;
         if (item.favoriteColorIndex >= 0) {
             r.favorite = true;
             r.color = (item.favoriteColorIndex <= 32)
@@ -897,6 +948,19 @@ void SmartClipApp::refreshTrayPopup()
                           : favoriteColors[32];
         }
         rows.push_back(r);
+    }
+    // Чистим память раскладок для записей, которых больше нет в истории.
+    if (!layoutOfItem.isEmpty()) {
+        QSet<QString> live;
+        live.reserve(history.size());
+        for (const auto &item : history)
+            live.insert(item.text);
+        for (auto it = layoutOfItem.begin(); it != layoutOfItem.end();) {
+            if (!live.contains(it.key()))
+                it = layoutOfItem.erase(it);
+            else
+                ++it;
+        }
     }
     trayPopup->setRows(rows);
 }

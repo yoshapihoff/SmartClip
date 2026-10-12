@@ -35,6 +35,7 @@ private slots:
     void testLoadSaveHistory_favoriteColorIndex();
     void testLoadNonExistentFile();
     void testLoadCorruptedFile();
+    void testRenameItem();
     void testSetMaskInMenu();
     void testMaskInMenu();
     void testEncryptedRoundTrip();
@@ -639,6 +640,39 @@ void TestHistoryManager::testLoadCorruptedFile()
     
     m_historyManager->loadHistory(m_testFilePath);
     QCOMPARE(m_historyManager->history().size(), 0);
+}
+
+void TestHistoryManager::testRenameItem()
+{
+    const QString oldText = QStringLiteral("Ghbdtn");
+    const QString newText = QString::fromUtf8("Привет");
+
+    m_historyManager->addToHistory(oldText);
+    m_historyManager->setFavoriteColor(oldText, 3);
+    m_historyManager->setComment(oldText, QStringLiteral("greeting"));
+    m_historyManager->setMaskInMenu(oldText, true);
+
+    QVERIFY(m_historyManager->renameItem(oldText, newText));
+    QCOMPARE(m_historyManager->history().size(), 1);
+    bool oldStillThere = false;
+    for (const auto &it : m_historyManager->history())
+        if (it.text == oldText)
+            oldStillThere = true;
+    QVERIFY(!oldStillThere);
+
+    // Свойства перенеслись на новый текст.
+    QCOMPARE(m_historyManager->favoriteColorIndex(newText), 3);
+    QCOMPARE(m_historyManager->comment(newText), QStringLiteral("greeting"));
+    QCOMPARE(m_historyManager->maskInMenu(newText), true);
+
+    // Записи со старым текстом больше нет.
+    QCOMPARE(m_historyManager->favoriteColorIndex(oldText), -1);
+    QCOMPARE(m_historyManager->comment(oldText), QString());
+
+    // Повторный вызов с тем же текстом — no-op.
+    QVERIFY(!m_historyManager->renameItem(newText, newText));
+    QVERIFY(!m_historyManager->renameItem(QStringLiteral("nope"),
+                                          QStringLiteral("nope2")));
 }
 
 QTEST_MAIN(TestHistoryManager)

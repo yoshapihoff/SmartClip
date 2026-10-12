@@ -45,6 +45,8 @@ private slots:
     void onClearHistory();
     void onDeleteItem(const QString &text);
     void onToggleFavorite(const QString &text);
+    /** Сменить раскладку текста записи (перекодировать в следующую). */
+    void onConvertLayout(const QString &text);
     
     // Методы для управления цветами избранного
     int getFavoriteColorIndex(const QString &text);
@@ -142,4 +144,8 @@ private:
     // Цвета для иконок избранного
     static const QColor favoriteColors[33]; // 32 цвета + белый
     QHash<QString, int> favoriteItemColors; // Сохраняем закрепленные цвета за элементами
+
+    // Текущая раскладка текста каждой записи (для циклического перебора при
+    // смене раскладки). В памяти сессии: на диск/синк НЕ пишется.
+    QHash<QString, QString> layoutOfItem;
 };
