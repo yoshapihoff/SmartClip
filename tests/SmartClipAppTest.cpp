@@ -72,6 +72,12 @@ private:
     SmartClipApp *m_smartClipApp;
     QString m_testSettingsPath;
     QString m_testHistoryPath;
+    // Изолированный HOME на время теста: иначе конструктор SmartClipApp пишет
+    // РЕАЛЬНЫЙ ~/.config/autostart/smartclip.desktop (с путём ТЕСТОВОГО
+    // бинарника) и трогает ~/.smartclip — то есть прогон ctest портит
+    // пользовательскую настройку автозапуска.
+    QByteArray m_savedHome;
+    QString m_testHomeDir;
 };
 
 void TestSmartClipApp::initTestCase()
@@ -99,12 +105,24 @@ void TestSmartClipApp::cleanupTestCase()
 
 void TestSmartClipApp::init()
 {
+    // Изолированный HOME на каждый тест: SmartClipApp в конструкторе
+    // применяет автозапуск и читает настройки/историю — нельзя трогать реальные.
+    m_savedHome = qgetenv("HOME");
+    m_testHomeDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+        + "/smartclip_app_test_home_"
+        + QString::number(QDateTime::currentMSecsSinceEpoch());
+    QDir().mkpath(m_testHomeDir);
+    qputenv("HOME", m_testHomeDir.toUtf8());
+
     m_smartClipApp = new SmartClipApp();
 }
 
 void TestSmartClipApp::cleanup()
 {
     delete m_smartClipApp;
+    m_smartClipApp = nullptr;
+    qputenv("HOME", m_savedHome);
+    QDir(m_testHomeDir).removeRecursively();
     QFile::remove(m_testSettingsPath);
     QFile::remove(m_testHistoryPath);
 }
