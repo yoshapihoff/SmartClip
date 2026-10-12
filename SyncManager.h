@@ -76,8 +76,24 @@ private:
     QString m_deviceId;
     QTimer *m_publishThrottle = nullptr;   // склейка частых publish
     QTimer *m_periodic = nullptr;          // периодический announce
+    QTimer *m_masterWatch = nullptr;       // быстрая проверка «молчания мастера»
     bool m_pendingPublish = false;
     QByteArray m_lastPublishedHash;        // SHA-256 последнего опубликованного plaintext
                                            // (сравнение эха без хрупкого равенства JSON)
     int m_knownMasterHistorySize = 0;      // транслит History Size мастера (для 2-го хопа)
+
+    /** Логика «один master на комнату»: если видим другого master с МЕНЬШИМ
+     *  deviceId — уступаем и становимся slave (детерминированно). */
+    void maybeYieldMaster(int remoteDid, const QString &remoteRole);
+
+    /** Фолбэк: если авторитетный master молчит дольше kMasterStaleMs — slave
+     *  сам становится master'ом («мастер давно не подключался»). */
+    void maybePromoteOnMasterSilence(qint64 nowMs);
+    /** Сбросить знание о мастере (при смене настроек/отключении синка). */
+    void clearMasterInfo();
+
+    /** id последнего известного мастера комнаты (0 — неизвестен). */
+    int m_masterDid = 0;
+    /** Стенное время (мс) последней активности мастера. 0 — не видели. */
+    qint64 m_masterSeenMs = 0;
 };

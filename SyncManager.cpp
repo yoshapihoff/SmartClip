@@ -11,18 +11,30 @@
 #include <QCryptographicHash>
 #include <QRegularExpression>
 #include <QRandomGenerator>
+#include <QDateTime>
 #include <QDebug>
 
 namespace {
 
 constexpr int kPublishThrottleMs = 700;
 constexpr int kPeriodicAnnounceMs = 60000;
+/** Сколько мастер может молчать, прежде чем ведомый сам станет мастером
+ *  (фолбэк «мастер давно не подключался»). С запасом больше периода announce
+ *  (60 с), чтобы не срабатывало от пропуска одного пакета. Можно переопределить
+ *  переменной окружения SMARTCLIP_MASTER_STALE_MS (тесты/отладка). */
+qint64 masterStaleMs()
+{
+    bool ok = false;
+    const qint64 v = qEnvironmentVariable("SMARTCLIP_MASTER_STALE_MS").toLongLong(&ok);
+    return (ok && v > 0) ? v : (3 * 60 * 1000);
+}
 
 QByteArray stateToJson(const SyncEngine::NetworkState &st,
                        const QString &deviceId = QString(),
                        int historySize = 0,
                        const QString &role = QString(),
-                       int masterHistorySize = 0)
+                       int masterHistorySize = 0,
+                       int devId = 0)
 {
     QJsonArray items;
     for (const auto &it : st.items) {
@@ -62,6 +74,8 @@ QByteArray stateToJson(const SyncEngine::NetworkState &st,
         root.insert(QStringLiteral("role"), role);
     if (masterHistorySize > 0)
         root.insert(QStringLiteral("mhs"), masterHistorySize);
+    if (devId > 0)
+        root.insert(QStringLiteral("did"), devId);
     root.insert(QStringLiteral("items"), items);
     root.insert(QStringLiteral("deleted"), del);
     return QJsonDocument(root).toJson(QJsonDocument::Compact);
@@ -73,6 +87,14 @@ QString jsonDeviceId(const QByteArray &data)
     if (!doc.isObject())
         return QString();
     return doc.object().value(QStringLiteral("d")).toString();
+}
+
+int jsonDid(const QByteArray &data)
+{
+    const QJsonDocument doc = QJsonDocument::fromJson(data);
+    if (!doc.isObject())
+        return 0;
+    return doc.object().value(QStringLiteral("did")).toInt(0);
 }
 
 SyncEngine::NetworkState jsonToState(const QByteArray &data)
@@ -129,6 +151,14 @@ SyncManager::SyncManager(MqttClient *client, HistoryManager *history,
     m_deviceId = QStringLiteral("sc-")
         + QString::number(QRandomGenerator::global()->generate(), 16);
 
+    // Стабильный числовой id устройства (для разрешения конфликта «несколько
+    // master»). Назначается ОДИН раз и живёт в settings.yml; если настройки
+    // ещё не загружены, назначим лениво в первом publishState().
+    if (m_settings && m_settings->deviceId() <= 0) {
+        const int id = int(QRandomGenerator::global()->bounded(1, 0x7FFFFFFF));
+        m_settings->setDeviceId(id);
+    }
+
     m_publishThrottle = new QTimer(this);
     m_publishThrottle->setSingleShot(true);
     m_publishThrottle->setInterval(kPublishThrottleMs);
@@ -140,6 +170,15 @@ SyncManager::SyncManager(MqttClient *client, HistoryManager *history,
     connect(m_periodic, &QTimer::timeout, this, [this]() {
         // Периодический announce: помогает «догонять» пропущенные сообщения.
         publishState();
+    });
+
+    // Быстрая проверка фолбэка «мастер давно не подключался». Отдельный таймер
+    // (чаще announce), чтобы ведомый повышался до master своевременно, если
+    // авторитетный master пропал (его порог молчания истёк).
+    m_masterWatch = new QTimer(this);
+    m_masterWatch->setInterval(15000);
+    connect(m_masterWatch, &QTimer::timeout, this, [this]() {
+        maybePromoteOnMasterSilence(QDateTime::currentMSecsSinceEpoch());
     });
 
     if (m_client) {
@@ -158,6 +197,13 @@ SyncManager::SyncManager(MqttClient *client, HistoryManager *history,
 void SyncManager::onClientStatusChanged()
 {
     emit statusChanged();
+}
+
+void SyncManager::clearMasterInfo()
+{
+    m_masterDid = 0;
+    m_masterSeenMs = 0;
+    m_knownMasterHistorySize = 0;
 }
 
 bool SyncManager::isActive() const
@@ -254,6 +300,8 @@ void SyncManager::applySettings()
 
     if (!m_periodic->isActive())
         m_periodic->start();
+    if (m_masterWatch && !m_masterWatch->isActive())
+        m_masterWatch->start();
 
     emit statusChanged();
 }
@@ -262,10 +310,13 @@ void SyncManager::stop()
 {
     if (m_periodic)
         m_periodic->stop();
+    if (m_masterWatch)
+        m_masterWatch->stop();
     if (m_publishThrottle)
         m_publishThrottle->stop();
     m_pendingPublish = false;
     m_lastPublishedHash.clear();
+    clearMasterInfo();   // новое подключение — чистый расчёт мастера
     if (m_client)
         m_client->disconnectFromBroker();
 }
@@ -274,6 +325,59 @@ void SyncManager::onConnected()
 {
     // Сразу объявляем своё состояние, чтобы синхронизировать догоняющего.
     publishState();
+}
+
+void SyncManager::maybeYieldMaster(int remoteDid, const QString &remoteRole)
+{
+    // Если мы master и в комнате есть ДРУГОЙ master с МЕНЬШИМ did — уступаем и
+    // становимся slave. Меньший did — детерминированный победитель, поэтому
+    // оба устройства приходят к одному master (без переговоров).
+    if (!m_settings || !m_settings->isMaster())
+        return;
+    if (remoteRole != QLatin1String("master"))
+        return;
+    const int myDid = m_settings->deviceId();
+    if (myDid <= 0 || remoteDid <= 0 || remoteDid >= myDid)
+        return;   // мы младший id — остаёмся master
+
+    m_settings->setSyncRole(QStringLiteral("slave"));
+    if (m_history && m_settings->maxItems() > 0)
+        m_history->setMaxItems(m_settings->maxItems());
+    m_masterDid = remoteDid;
+    m_masterSeenMs = QDateTime::currentMSecsSinceEpoch();
+    qInfo() << "SmartClip sync: найден другой master (did" << remoteDid
+            << ") — это устройство переведено в slave (did" << myDid << ")";
+
+    // Пересобираем состояние уже по правилам slave, чтобы цвета/лимит пришли
+    // от настоящего мастера.
+    m_pendingPublish = true;
+    if (m_publishThrottle && !m_publishThrottle->isActive())
+        m_publishThrottle->start();
+    emit statusChanged();
+}
+
+void SyncManager::maybePromoteOnMasterSilence(qint64 nowMs)
+{
+    // Фолбэк: если мы slave, знаем авторитетного master, но он молчит дольше
+    // kMasterStaleMs — становимся master'ом сами (его эра истекла). Когда
+    // настоящий мастер вернётся, он снова победит по меньшему did.
+    if (!m_settings || m_settings->isMaster())
+        return;
+    if (m_masterSeenMs <= 0)
+        return;   // мастера в комнате вообще не видели — остаёмся slave
+    if (nowMs - m_masterSeenMs <= masterStaleMs())
+        return;
+
+    m_settings->setSyncRole(QStringLiteral("master"));
+    if (m_history && m_settings->maxItems() > 0)
+        m_history->setMaxItems(m_settings->maxItems());
+    qInfo() << "SmartClip sync: master (did" << m_masterDid << ") молчит дольше"
+            << masterStaleMs() / 1000 << "с — это устройство стало master (did"
+            << m_settings->deviceId() << ")";
+    m_pendingPublish = true;
+    if (m_publishThrottle && !m_publishThrottle->isActive())
+        m_publishThrottle->start();
+    emit statusChanged();
 }
 
 SyncEngine::NetworkState SyncManager::localState() const
@@ -299,7 +403,8 @@ QByteArray SyncManager::buildPayload() const
                         ? m_settings->maxItems()
                         : m_knownMasterHistorySize;
     return stateToJson(localState(), m_deviceId,
-                       m_settings ? m_settings->maxItems() : 0, role, mhs);
+                       m_settings ? m_settings->maxItems() : 0, role, mhs,
+                       m_settings ? m_settings->deviceId() : 0);
 }
 
 void SyncManager::notifyLocalChange()
@@ -323,6 +428,11 @@ void SyncManager::publishState()
 {
     if (!m_client || !m_client->isConnected())
         return;
+    // Ленивое назначение id устройства (если создались раньше загрузки настроек).
+    if (m_settings && m_settings->deviceId() <= 0) {
+        const int id = int(QRandomGenerator::global()->bounded(1, 0x7FFFFFFF));
+        m_settings->setDeviceId(id);
+    }
     const QByteArray key = encryptionKey();
     if (key.size() != 32)
         return;
@@ -371,6 +481,23 @@ void SyncManager::onMessage(const QString &topicName, const QByteArray &payload)
     const QString remoteRole = root.value(QStringLiteral("role")).toString();
     const int remoteHs = root.value(QStringLiteral("hs")).toInt(0);
     const int remoteMhs = root.value(QStringLiteral("mhs")).toInt(0);
+    const int remoteDid = jsonDid(plain);
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+
+    // ── Один master на комнату ─────────────────────────────────────────
+    // Если мы master и увидели ДРУГОГО master с МЕНЬШИМ did — уступаем и
+    // становимся slave (детерминированно: меньший did — победитель). Так
+    // «лишние» master-клиенты автоматически превращаются в slave.
+    maybeYieldMaster(remoteDid, remoteRole);
+
+    // Ведомый запоминает активность мастера (для фолбэка «мастер молчит»).
+    if (!m_settings->isMaster() && remoteRole == QLatin1String("master")
+        && remoteDid > 0) {
+        m_masterDid = remoteDid;
+        m_masterSeenMs = nowMs;
+    }
+    // Фолбэк: мастер давно молчит → повышаемся до master сами.
+    maybePromoteOnMasterSilence(nowMs);
 
     // Обновляем знание о «History Size мастера»: либо от самого мастера (hs),
     // либо транслитом от другого ведомого (mhs).
@@ -418,7 +545,8 @@ void SyncManager::onMessage(const QString &topicName, const QByteArray &payload)
                                    : QStringLiteral("master");
         const QByteArray outRaw = stateToJson(merged, m_deviceId,
                                               m_settings->maxItems(), myRole,
-                                              m_knownMasterHistorySize);
+                                              m_knownMasterHistorySize,
+                                              m_settings->deviceId());
         const QByteArray blobOut = Crypto::encrypt(outRaw, key);
         if (!blobOut.isEmpty()) {
             m_client->publish(topic(), blobOut.toBase64(), true);

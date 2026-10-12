@@ -35,6 +35,15 @@ public:
     QString syncRoom() const { return m_syncRoom; }
     bool isMaster() const { return m_syncRole != QLatin1String("slave"); }
 
+    /**
+     * Стабильный числовой id устройства (для разрешения конфликта «несколько
+     * master»: из двух master в slave уходит тот, у кого БОЛЬШИЙ id).
+     * Постоянный (живёт в settings.yml); 0 — ещё не назначался, тогда его
+     * сгенерирует SyncManager в первом раунде.
+     */
+    int deviceId() const { return m_deviceId; }
+    void setDeviceId(int id) { m_deviceId = id; saveCurrentSettings(); }
+
     void setSyncEnabled(bool on);
     void setBrokerHost(const QString &host);
     void setBrokerPort(int port);
@@ -74,5 +83,6 @@ private:
     QString m_syncRoom = QStringLiteral("smartclip");
 
     QByteArray m_secretKey;   // AES-256-GCM для паролей в файле
+    int m_deviceId = 0;       // стабильный id устройства (settings.yml)
     QString m_currentFilePath;
 };

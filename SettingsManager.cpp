@@ -297,6 +297,15 @@ void SettingsManager::loadSettings(const QString &filePath)
             const QString v = firstMatch(t, QStringLiteral("sync_room"));
             if (!v.isEmpty()) { m_syncRoom = v; continue; }
         }
+        {
+            const QString v = firstMatch(t, QStringLiteral("device_id"));
+            if (!v.isEmpty()) {
+                bool ok = false;
+                const int n = v.toInt(&ok);
+                if (ok && n > 0) m_deviceId = n;
+                continue;
+            }
+        }
     }
 }
 
@@ -326,6 +335,7 @@ void SettingsManager::saveSettings(const QString &filePath) const
     out << "sync_enc_password: " << encodeSecret(m_encPassword, m_secretKey) << "\n";
     out << "sync_role: " << m_syncRole << "\n";
     out << "sync_room: " << m_syncRoom << "\n";
+    out << "device_id: " << m_deviceId << "\n";
 
     // settings.yml содержит учётку брокера и общий пароль синка (при
     // неработающем keyring — открытым base64). Закрываем права до владельца.

@@ -555,6 +555,7 @@ void TestSyncEngine::testNetworkSettingsRoundTrip()
     SettingsManager s2;
     s2.setSecretKey(key);
     s2.loadSettings(path);
+    s2.setDeviceId(4242);    // стабильный id устройства доводим до файла
     QCOMPARE(s2.syncEnabled(), true);
     QCOMPARE(s2.brokerHost(), QString("broker.example.com"));
     QCOMPARE(s2.brokerPort(), 8883);
@@ -565,6 +566,12 @@ void TestSyncEngine::testNetworkSettingsRoundTrip()
     QCOMPARE(s2.syncRole(), QString("slave"));
     QCOMPARE(s2.isMaster(), false);
     QCOMPARE(s2.syncRoom(), QString("room42"));
+
+    // device_id жёстко живёт в файле (нужен для выборов master).
+    SettingsManager s3;
+    s3.setSecretKey(key);
+    s3.loadSettings(path);
+    QCOMPARE(s3.deviceId(), 4242);
 
     // Пароли не должны лежать в файле открытым текстом
     QFile f(path);
