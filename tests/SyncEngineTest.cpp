@@ -54,6 +54,7 @@ private slots:
     void testDeletionPropagates();
     void testDeletionBothDirections();
     void testResurrectAfterDelete();
+    void testRenameItemPropagatesNoDuplicate();
     void testTombstoneOnlyKeysDoNotCrash();
     void testOrderingFavoritesThenUsage();
 
@@ -301,6 +302,34 @@ void TestSyncEngine::testResurrectAfterDelete()
     const auto r = SyncEngine::merge(local, remote, true, 32);
     QCOMPARE(r.items.size(), 1);
     QCOMPARE(r.items.first().text, QString("x"));
+}
+
+void TestSyncEngine::testRenameItemPropagatesNoDuplicate()
+{
+    // Переименование записи (смена раскладки): локально старый текст получает
+    // tombstone, новый — появляется. При слиянии с удалённой стороной, где ещё
+    // жив старый текст, должен остаться ТОЛЬКО новый (без дубля).
+    HistoryManager h;
+    h.addToHistory("Ghbdtn");
+    h.setFavoriteColor("Ghbdtn", 3);
+    h.setComment("Ghbdtn", "greeting");
+    QVERIFY(h.renameItem("Ghbdtn", QString::fromUtf8("Привет")));
+
+    SyncEngine::NetworkState local;
+    local.items = h.history();
+    local.tombstones = h.tombstones();
+
+    // Удалённая сторона ещё не знает о переименовании.
+    SyncEngine::NetworkState remote;
+    remote.items = {mk("Ghbdtn", 1, 100, 3, false, "greeting")};
+
+    const auto r = SyncEngine::merge(local, remote, true, 32);
+    // Осталась ровно одна запись — новая; старой нет.
+    QCOMPARE(r.items.size(), 1);
+    QCOMPARE(r.items.first().text, QString::fromUtf8("Привет"));
+    QVERIFY(r.tombstones.contains("Ghbdtn"));
+    // Свойства перенеслись.
+    QCOMPARE(r.items.first().comment, QString("greeting"));
 }
 
 void TestSyncEngine::testOrderingFavoritesThenUsage()

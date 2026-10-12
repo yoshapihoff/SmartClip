@@ -86,6 +86,45 @@ private slots:
                     .isEmpty());
     }
 
+    void mixedTextKeepsTargetSubstring()
+    {
+        if (!LayoutConverter::available())
+            QSKIP("в системе меньше двух раскладок");
+        const QStringList layouts = LayoutConverter::availableLayouts();
+        if (!layouts.contains(QStringLiteral("us"))
+            || !layouts.contains(QStringLiteral("ru")))
+            QSKIP("нет пары us/ru");
+        // Подстрока, уже набранная в целевую раскладку (в середине/конце),
+        // остаётся как была.
+        QCOMPARE(LayoutConverter::convert(
+                     QStringLiteral("Ghbdtn ") + QString::fromUtf8("привет"),
+                     QStringLiteral("us"), QStringLiteral("ru")),
+                 QString::fromUtf8("Привет привет"));
+        QCOMPARE(LayoutConverter::convert(
+                     QString::fromUtf8("привет ") + QStringLiteral("Ghbdtn"),
+                     QStringLiteral("us"), QStringLiteral("ru")),
+                 QString::fromUtf8("привет Привет"));
+    }
+
+    void sharedPunctuationPreserved()
+    {
+        if (!LayoutConverter::available())
+            QSKIP("в системе меньше двух раскладок");
+        const QStringList layouts = LayoutConverter::availableLayouts();
+        if (!layouts.contains(QStringLiteral("us"))
+            || !layouts.contains(QStringLiteral("ru")))
+            QSKIP("нет пары us/ru");
+        // Символы, общие для обеих раскладок, не подменяются.
+        QCOMPARE(LayoutConverter::convert(
+                     QStringLiteral("Ghbdtn,"),
+                     QStringLiteral("us"), QStringLiteral("ru")),
+                 QString::fromUtf8("Привет,"));
+        QCOMPARE(LayoutConverter::convert(
+                     QString::fromUtf8("привет,"),
+                     QStringLiteral("ru"), QStringLiteral("us")),
+                 QStringLiteral("ghbdtn,"));
+    }
+
     void nextLayoutCycles()
     {
         const QStringList layouts = LayoutConverter::availableLayouts();

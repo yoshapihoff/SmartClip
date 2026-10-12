@@ -622,6 +622,13 @@ bool HistoryManager::renameItem(const QString &oldText, const QString &newText)
         // usageCount НЕ увеличиваем: это не новое копирование, а правка записи.
         // Метку времени изменения не трогаем: свойства остались прежними.
     }
+
+    // Переименование = «старый текст исчез, появился новый». Чтобы это доехало
+    // до других устройств (а не осело дублем: старый у ведомого + новый у нас),
+    // ставим СТАРОМУ тексту tombstone, а у НОВОГО возможный tombstone снимаем.
+    m_tombstones.insert(oldText, nowMs);
+    m_tombstones.remove(newText);
+
     m_dirty = true;
     sortHistory();
     return true;

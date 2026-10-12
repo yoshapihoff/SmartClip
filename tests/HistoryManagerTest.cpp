@@ -669,6 +669,11 @@ void TestHistoryManager::testRenameItem()
     QCOMPARE(m_historyManager->favoriteColorIndex(oldText), -1);
     QCOMPARE(m_historyManager->comment(oldText), QString());
 
+    // Старому тексту поставлен tombstone — чтобы переименование доехало до
+    // других устройств (а не осело там дублем).
+    QVERIFY(m_historyManager->tombstones().contains(oldText));
+    QVERIFY(!m_historyManager->tombstones().contains(newText));
+
     // Повторный вызов с тем же текстом — no-op.
     QVERIFY(!m_historyManager->renameItem(newText, newText));
     QVERIFY(!m_historyManager->renameItem(QStringLiteral("nope"),

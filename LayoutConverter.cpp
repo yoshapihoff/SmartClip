@@ -456,9 +456,18 @@ QString LayoutConverter::convert(const QString &text, const QString &from,
     int converted = 0;
     for (const QChar &ch : text) {
         const QString s(ch);
+        // Символ, который можно набрать в ЦЕЛЕВОЙ раскладке, считаем «уже в
+        // нужной раскладке» и не трогаем: подстроки, уже набранные в целевую
+        // раскладку (в середине/конце текста), остаются как были. Сюда же
+        // попадают символы, общие для обеих раскладок (напр. '-', '.', ','):
+        // они остаются собой в ОБЕ стороны, поэтому цикл переключений не ломается.
+        if (dst.charToKey.contains(s)) {
+            out += s;
+            continue;
+        }
         auto it = src.charToKey.constFind(s);
         if (it == src.charToKey.constEnd()) {
-            out += s;   // пробелы, эмодзи и пр. — как есть
+            out += s;   // символа нет в исходной раскладке — как есть
             continue;
         }
         auto jt = dst.keyToChar.constFind(mapKey(it.value().key, it.value().level));
@@ -466,8 +475,8 @@ QString LayoutConverter::convert(const QString &text, const QString &from,
             out += s;   // в целевой раскладке на этой позиции ничего нет
             continue;
         }
-        if (jt.value() != s)
-            ++converted;
+        // s ∉ dst.charToKey, а jt — символ целевой раскладки, значит jt != s.
+        ++converted;
         out += jt.value();
     }
     return converted > 0 ? out : QString();

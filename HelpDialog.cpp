@@ -164,9 +164,11 @@ void HelpDialog::setupUI()
         "<i>Ghbdtn</i> instead of <i>Привет</i>), hover its row in the popup and "
         "use the <b>keyboard</b> button (right after the ★ favorite button). "
         "Each click re-types the clip in the next layout installed in your system "
-        "(cycling), puts the result on the clipboard and updates the row in place. "
-        "Favorites, color, masking and comments are kept. The button appears only "
-        "when the system has two or more layouts.",
+        "(cycling), puts the result on the clipboard and updates the row in place — "
+        "and the change is synced to your other devices. Text that is already in "
+        "the target layout (or shared characters like <i>-</i>, <i>.</i>, "
+        "<i>,</i>) is left untouched. Favorites, color, masking and comments are "
+        "kept. The button appears only when the system has two or more layouts.",
         this
     );
     layText->setWordWrap(true);
