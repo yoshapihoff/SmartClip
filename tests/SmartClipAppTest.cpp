@@ -373,14 +373,14 @@ void TestSmartClipApp::testOnSettings()
 // Additional helper tests
 void TestSmartClipApp::testClipboardPolling()
 {
-#if defined(Q_OS_MAC) || defined(Q_OS_LINUX)
+#if defined(Q_OS_MAC) || defined(Q_OS_LINUX) || defined(Q_OS_WIN)
     m_smartClipApp->show();
     QTest::qWait(600); // Allow polling timer to trigger at least once
     
     // Clipboard polling should work without crashing
     QVERIFY(true);
 #else
-    QSKIP("Clipboard polling is macOS/Linux only");
+    QSKIP("Clipboard polling is macOS/Linux/Windows only");
 #endif
 }
 

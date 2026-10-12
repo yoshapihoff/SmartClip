@@ -17,6 +17,7 @@ private:
     /** Returns platform-specific autostart file path:
      *   macOS:   ~/Library/LaunchAgents/com.yoshapihoff.smartclip.plist
      *   Linux:   ~/.config/autostart/smartclip.desktop
+     *   Windows: HKCU\Software\Microsoft\Windows\CurrentVersion\Run (не файл)
      *   Other:   empty string
      */
     QString autostartFilePath() const;

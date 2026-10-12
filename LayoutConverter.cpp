@@ -6,6 +6,7 @@
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QDebug>
+#include <QVarLengthArray>
 
 #include <algorithm>
 
@@ -319,6 +320,67 @@ bool buildLayoutWithTis(TISInputSourceRef src, LayoutConverter::Layout &out)
 }
 #endif // Q_OS_MAC
 
+// ════════════════════════════════════════════════════════════════════════
+//  Windows: список активных раскладок + карты через ToUnicodeEx
+// ════════════════════════════════════════════════════════════════════════
+#if defined(Q_OS_WIN)
+#include <windows.h>
+
+// Короткий код раскладки по HKL: ISO-639-код языка («ru», «de», …).
+// Латинскую «en» приводим к «us» — так же, как на macOS, чтобы код совпадал
+// с привычным обозначением раскладки. Уникализацию дублей делает вызывающий.
+QString winLayoutCode(HKL hkl)
+{
+    const LANGID lang = LOWORD(reinterpret_cast<quintptr>(hkl));
+    wchar_t buf[16] = {0};
+    QString base;
+    if (GetLocaleInfoW(MAKELCID(lang, SORT_DEFAULT), LOCALE_SISO639LANGNAME,
+                       buf, 16) > 0)
+        base = QString::fromWCharArray(buf).toLower();
+    if (base.isEmpty())
+        base = QStringLiteral("??");
+    if (base == QStringLiteral("en"))
+        base = QStringLiteral("us");
+    return base;
+}
+
+// Построить карту «клавиша+уровень → символ» для раскладки HKL через
+// ToUnicodeEx (ровно то, что видит пользователь при нажатии клавиш).
+// VK-код = физическая клавиша (аналог keycode на Linux).
+// Флаг 1<<2 — не изменять состояние клавиатуры (чтобы dead keys не «залипали»).
+bool buildLayoutWithWin(HKL hkl, LayoutConverter::Layout &out)
+{
+    static const UINT vks[] = {
+        VK_OEM_3, VK_OEM_MINUS, VK_OEM_PLUS, VK_OEM_4, VK_OEM_6, VK_OEM_5,
+        VK_OEM_1, VK_OEM_7, VK_OEM_COMMA, VK_OEM_PERIOD, VK_OEM_2,
+        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+        'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+    };
+
+    for (UINT vk : vks) {
+        const UINT sc = MapVirtualKeyExW(vk, MAPVK_VK_TO_VSC, hkl);
+        for (int level = 0; level < 2; ++level) {
+            BYTE keystate[256] = {0};
+            if (level == 1)
+                keystate[VK_SHIFT] = 0x80;
+            wchar_t buf[8] = {0};
+            const int len =
+                ToUnicodeEx(vk, sc, keystate, buf, 8, 1u << 2, hkl);
+            if (len <= 0)
+                continue;
+            const QString ch = QString::fromWCharArray(buf, len);
+            if (ch.isEmpty() || ch == QStringLiteral(" "))
+                continue;
+            out.keyToChar.insert(mapKey(quint32(vk), level), ch);
+            if (!out.charToKey.contains(ch))
+                out.charToKey.insert(ch, {quint32(vk), level});
+        }
+    }
+    return !out.keyToChar.isEmpty();
+}
+#endif // Q_OS_WIN
+
 } // namespace
 
 // ════════════════════════════════════════════════════════════════════════
@@ -361,6 +423,28 @@ QStringList LayoutConverter::availableLayouts()
             d.byCode.insert(code, lay);
         }
         CFRelease(list);
+    }
+    if (codes.isEmpty())
+        codes = {QStringLiteral("us"), QStringLiteral("ru")};
+#elif defined(Q_OS_WIN)
+    // ── Windows ─────────────────────────────────────────────
+    // GetKeyboardLayoutList отдаёт раскладки, загруженные в сессии пользователя
+    // (те, что реально переключаются в трее). Строим карты через ToUnicodeEx.
+    QStringList codes;
+    const int n = GetKeyboardLayoutList(0, nullptr);
+    if (n > 0) {
+        QVarLengthArray<HKL, 32> hkls(n);
+        const int got = GetKeyboardLayoutList(n, hkls.data());
+        for (int i = 0; i < got; ++i) {
+            LayoutConverter::Layout lay;
+            if (!buildLayoutWithWin(hkls[i], lay))
+                continue;   // раскладка без данных (напр. IME)
+            QString code = winLayoutCode(hkls[i]);
+            while (codes.contains(code))   // уникализируем коды
+                code += QLatin1Char('+');
+            codes << code;
+            d.byCode.insert(code, lay);
+        }
     }
     if (codes.isEmpty())
         codes = {QStringLiteral("us"), QStringLiteral("ru")};
@@ -426,7 +510,7 @@ QStringList LayoutConverter::availableLayouts()
                 withMaps << c;
         }
         qInfo() << "LayoutConverter: раскладки =" << codes
-#if !defined(Q_OS_MAC)
+#if !defined(Q_OS_MAC) && !defined(Q_OS_WIN)
                 << "xkb =" << d.xkbUsed
 #endif
                 << "с картами =" << withMaps;

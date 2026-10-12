@@ -1,10 +1,16 @@
 #include "Crypto.h"
 
-#include <QProcess>
 #include <QByteArray>
 #include <QDebug>
 #include <QThread>
 #include <cstring>
+
+#if defined(Q_OS_WIN)
+ #include <windows.h>
+ #include <wincred.h>
+#else
+ #include <QProcess>
+#endif
 
 #if defined(SMARTCLIP_HAVE_OPENSSL)
  #include <openssl/evp.h>
@@ -17,6 +23,8 @@ constexpr int kKeyLen = 32;    // AES-256
 constexpr int kNonceLen = 12;  // GCM
 constexpr int kTagLen = 16;    // GCM
 
+// Внешние CLI нужны только на macOS (security) и Linux (secret-tool).
+#if !defined(Q_OS_WIN)
 QByteArray runCapture(const QString &prog, const QStringList &args,
                       bool *ok = nullptr)
 {
@@ -29,6 +37,16 @@ QByteArray runCapture(const QString &prog, const QStringList &args,
     if (ok) *ok = (p.exitStatus() == QProcess::NormalExit && p.exitCode() == 0);
     return p.readAllStandardOutput();
 }
+#endif
+
+#if defined(Q_OS_WIN)
+// Credential Manager — плоское пространство имён: «service» + «account» сводим
+// в одно имя цели. Кодировка — UTF-16 (CredWriteW/CredReadW).
+QString winTargetName(const QString &service, const QString &account)
+{
+    return service + QLatin1Char('/') + account;
+}
+#endif
 
 }  // namespace
 
@@ -202,6 +220,8 @@ QString keyringBackend()
     return QStringLiteral("macOS Keychain");
 #elif defined(Q_OS_LINUX)
     return QStringLiteral("Secret Service");
+#elif defined(Q_OS_WIN)
+    return QStringLiteral("Windows Credential Manager");
 #else
     return QString();
 #endif
@@ -224,6 +244,22 @@ QByteArray loadKey(const QString &service, const QString &account)
     if (!ok)
         return {};
     return QByteArray::fromBase64(out.trimmed());
+#elif defined(Q_OS_WIN)
+    const QString target = winTargetName(service, account);
+    PCREDENTIALW cred = nullptr;
+    if (!CredReadW(reinterpret_cast<LPCWSTR>(target.utf16()),
+                   CRED_TYPE_GENERIC, 0, &cred))
+        return {};
+
+    QByteArray blob;
+    if (cred) {
+        if (cred->CredentialBlob && cred->CredentialBlobSize > 0)
+            blob = QByteArray(
+                reinterpret_cast<const char *>(cred->CredentialBlob),
+                int(cred->CredentialBlobSize));
+        CredFree(cred);
+    }
+    return QByteArray::fromBase64(blob.trimmed());
 #else
     Q_UNUSED(service); Q_UNUSED(account);
     return {};
@@ -255,6 +291,27 @@ bool storeKey(const QString &service, const QString &account,
     if (!p.waitForFinished(3000))
         return false;
     return p.exitStatus() == QProcess::NormalExit && p.exitCode() == 0;
+#elif defined(Q_OS_WIN)
+    const QString target = winTargetName(service, account);
+    const QByteArray blob = b64;   // ASCII base64 -> blob учётки
+    const QString comment = QStringLiteral("SmartClip encryption key");
+
+    CREDENTIALW cred;
+    ZeroMemory(&cred, sizeof(cred));
+    cred.Type = CRED_TYPE_GENERIC;
+    cred.TargetName =
+        const_cast<LPWSTR>(reinterpret_cast<LPCWSTR>(target.utf16()));
+    cred.UserName =
+        const_cast<LPWSTR>(reinterpret_cast<LPCWSTR>(account.utf16()));
+    cred.Comment =
+        const_cast<LPWSTR>(reinterpret_cast<LPCWSTR>(comment.utf16()));
+    cred.CredentialBlobSize = static_cast<DWORD>(blob.size());
+    cred.CredentialBlob =
+        reinterpret_cast<LPBYTE>(const_cast<char *>(blob.constData()));
+    // LOCAL_MACHINE: ключ переживает перезагрузку и доступен только этому
+    // пользователю (защищён его профайлом), но не привязан к сессии входа.
+    cred.Persist = CRED_PERSIST_LOCAL_MACHINE;
+    return CredWriteW(&cred, 0) != FALSE;
 #else
     Q_UNUSED(service); Q_UNUSED(account); Q_UNUSED(key);
     return false;

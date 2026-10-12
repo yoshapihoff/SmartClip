@@ -100,6 +100,11 @@ target_link_libraries(SyncEngineTest
         Qt6::Test
 )
 
+if(WIN32)
+    # Crypto: Credential Manager (advapi32).
+    target_link_libraries(SyncEngineTest PRIVATE advapi32)
+endif()
+
 if(OpenSSL_FOUND)
     target_link_libraries(SyncEngineTest PRIVATE OpenSSL::Crypto)
     target_compile_definitions(SyncEngineTest PRIVATE SMARTCLIP_HAVE_OPENSSL)
@@ -114,6 +119,11 @@ target_link_libraries(LaunchAgentManagerTest
     PRIVATE
         Qt6::Test
 )
+
+# Windows: реестр (advapi32) и Credential Manager — системные библиотеки.
+if(WIN32)
+    target_link_libraries(LaunchAgentManagerTest PRIVATE advapi32)
+endif()
 
 qt_add_executable(VersionTest
     VersionTest.cpp
@@ -171,6 +181,11 @@ endif()
 if(Qt6Mqtt_FOUND)
     target_link_libraries(SmartClipAppTest PRIVATE Qt6::Mqtt)
     target_compile_definitions(SmartClipAppTest PRIVATE SMARTCLIP_HAVE_MQTT)
+endif()
+
+if(WIN32)
+    # Реестр/Credential Manager (advapi32) + ToUnicodeEx/раскладки (user32).
+    target_link_libraries(SmartClipAppTest PRIVATE advapi32 user32)
 endif()
 
 add_test(NAME VersionTest COMMAND VersionTest)

@@ -290,9 +290,11 @@ SmartClipApp::SmartClipApp(QObject *parent)
         });
     }
 
-#if defined(Q_OS_MAC) || defined(Q_OS_LINUX)
+#if defined(Q_OS_MAC) || defined(Q_OS_LINUX) || defined(Q_OS_WIN)
     // macOS: polling нужен для надёжного отслеживания clipboard (Qt не всегда получает события)
     // Linux: polling страхует от проблем с QClipboard::dataChanged на Wayland
+    // Windows: polling — на случай, когда чужие приложения меняют буфер
+    //          без уведомления Qt (наблюдается на практике)
     clipboardPollTimer = new QTimer(this);
     clipboardPollTimer->setInterval(500);
     connect(clipboardPollTimer, &QTimer::timeout, this, &SmartClipApp::pollClipboard);

@@ -24,7 +24,7 @@ int main(int argc, char *argv[])
 
     QApplication app(argc, argv);
 
-#if defined(Q_OS_MAC) || defined(Q_OS_LINUX)
+#if defined(Q_OS_MAC) || defined(Q_OS_LINUX) || defined(Q_OS_WIN)
     // Не показывать иконку в Dock (macOS) и не завершать приложение
     // при закрытии окон, т.к. оно живёт в system tray
     app.setQuitOnLastWindowClosed(false);
