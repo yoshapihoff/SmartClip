@@ -55,6 +55,7 @@ private slots:
     void testDeletionBothDirections();
     void testResurrectAfterDelete();
     void testRenameItemPropagatesNoDuplicate();
+    void testRenameRoundTripDoesNotLoseItem();
     void testTombstoneOnlyKeysDoNotCrash();
     void testOrderingFavoritesThenUsage();
 
@@ -330,6 +331,55 @@ void TestSyncEngine::testRenameItemPropagatesNoDuplicate()
     QVERIFY(r.tombstones.contains("Ghbdtn"));
     // Свойства перенеслись.
     QCOMPARE(r.items.first().comment, QString("greeting"));
+}
+
+void TestSyncEngine::testRenameRoundTripDoesNotLoseItem()
+{
+    // Регресс 12.10.2026: смена раскладки ТУДА И ОБРАТНО (или цикл) теряла
+    // запись у всех. Причина: при переименовании старому тексту ставится
+    // tombstone; когда текст возвращается, запись сохраняла СТАРЫЙ addedAtMs, и
+    // "висячий" tombstone (свежее addedAtMs) убивал её при слиянии.
+    //
+    // Было: first-rename alpha->make (tomb alpha=2000), back-rename make->alpha.
+    // alpha вернулась, но addedAtMs остался 100 (< tomb 2000) → смерть.
+    // Стало: addedAtMs обновляется до "сейчас" → alpha жива.
+    {
+        SyncEngine::NetworkState local, remote;
+        local.items = {mk("alpha", 1, 5000)};             // вернулась «сейчас»
+        local.tombstones.insert("alpha", 2000);           // tomb от первого rename
+        local.tombstones.insert("make", 5000);            // tomb от обратного
+        remote.items = {mk("alpha", 1, 100)};             // у соседа — исходная
+        const auto r = SyncEngine::merge(local, remote, true, 32);
+        QCOMPARE(r.items.size(), 1);
+        QCOMPARE(r.items.first().text, QString("alpha"));
+    }
+    // Контроль: со СТАРЫМ addedAtMs (100) запись остаётся убитой — это и был баг.
+    {
+        SyncEngine::NetworkState local, remote;
+        local.items = {mk("alpha", 1, 100)};              // старый addedAt ≠ фикс
+        local.tombstones.insert("alpha", 2000);
+        remote.items = {mk("alpha", 1, 100)};
+        const auto r = SyncEngine::merge(local, remote, true, 32);
+        QCOMPARE(r.items.size(), 0);                        // демонстрация бага
+    }
+    // Сквозной регресс через реальный HistoryManager: переименовали и вернули
+    // — запись должна остаться и после слияния с состоянием соседа.
+    {
+        HistoryManager h;
+        h.addToHistory("cmake");
+        QVERIFY(h.renameItem("cmake", "make"));
+        QVERIFY(h.renameItem("make", "cmake"));
+
+        SyncEngine::NetworkState local;
+        local.items = h.history();
+        local.tombstones = h.tombstones();
+        SyncEngine::NetworkState remote;
+        remote.items = local.items;   // у соседа сходящееся состояние
+
+        const auto r = SyncEngine::merge(local, remote, true, 32);
+        QCOMPARE(r.items.size(), 1);
+        QCOMPARE(r.items.first().text, QString("cmake"));
+    }
 }
 
 void TestSyncEngine::testOrderingFavoritesThenUsage()

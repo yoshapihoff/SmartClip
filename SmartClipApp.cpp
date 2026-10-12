@@ -341,6 +341,11 @@ SmartClipApp::SmartClipApp(QObject *parent)
         }
         // Пришло удалённое состояние → обновляем меню и сохраняем на диск.
         rebuildMenu();
+        // Если попап открыт — пересобираем его тоже, иначе он показывает
+        // состояние ДО синка и выглядит так, будто элементы «исчезли» или
+        // «не приехали» (жалоба 12.10.2026).
+        if (trayPopup && trayPopup->isVisible())
+            refreshTrayPopup();
         persistHistory();
     });
     syncManager->applySettings();

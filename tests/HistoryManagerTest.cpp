@@ -674,6 +674,17 @@ void TestHistoryManager::testRenameItem()
     QVERIFY(m_historyManager->tombstones().contains(oldText));
     QVERIFY(!m_historyManager->tombstones().contains(newText));
 
+    // addedAtMs обновлён (переименование = появление НОВОГО текста) — иначе
+    // "висячий" tombstone на этот текст от прежнего переименования убил бы
+    // запись при синке (регресс 12.10.2026).
+    {
+        qint64 added = 0;
+        for (const auto &it : m_historyManager->history())
+            if (it.text == newText)
+                added = it.addedAtMs;
+        QVERIFY(added > 0);
+    }
+
     // Повторный вызов с тем же текстом — no-op.
     QVERIFY(!m_historyManager->renameItem(newText, newText));
     QVERIFY(!m_historyManager->renameItem(QStringLiteral("nope"),
