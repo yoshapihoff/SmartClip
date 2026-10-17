@@ -11,6 +11,7 @@
 class QAction;
 class QTimer;
 class QWidget;
+class QAbstractNativeEventFilter;
 class SettingsManager;
 class SettingsDialog;
 class HelpDialog;
@@ -122,10 +123,14 @@ private:
     void clearModes();
     /** Сбросить только режим удаления (не трогая другие режимы). */
     void resetDeleteMode();
-    QTimer *iconThemeTimer = nullptr;   // периодическая проверка темы (Linux/Wayland)
+    QTimer *iconThemeTimer = nullptr;   // периодическая проверка темы (Linux/Wayland, Windows)
     QTimer *historyAutosaveTimer = nullptr;   // авто-сохранение истории/избранного
     bool iconDarkValid = false;         // был ли уже применён цвет иконки
     bool iconDarkApplied = false;       // тёмная ли тема была применена
+#if defined(Q_OS_WIN)
+    // Ловит WM_SETTINGCHANGE: смена цвета панели задач должна менять иконку сразу.
+    QAbstractNativeEventFilter *nativeEventFilter = nullptr;
+#endif
     // «Режим избранного»: на GNOME Wayland Ctrl+клик недоходит до приложения,
     // поэтому клик по элементу работает как тумблер избранного (см. rebuildMenu).
     bool favoriteMode = false;

@@ -37,8 +37,58 @@
 #include <QPushButton>
 #include <QSignalBlocker>
 
+#if defined(Q_OS_WIN)
+// Тема системной панели (SystemUsesLightTheme) — для цвета иконки в трее.
+// windows.h тянет за собой много макросов, поэтому подключаем его ПОСЛЕ
+// Qt-заголовков и ограничиваем минимальный набор (WIN32_LEAN_AND_MEAN).
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <windows.h>
+#endif
+
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
  #include <QStyleHints>
+#endif
+
+#include <QAbstractNativeEventFilter>
+
+
+#if defined(Q_OS_WIN)
+// Фильтр системных сообщений Windows: WM_SETTINGCHANGE приходит, когда
+// меняются параметры персонализации (в т.ч. цвет панели задач).
+// Qt сигнал colorSchemeChanged в этом случае НЕ приходит, поэтому иконка
+// в трее оставалась белой и после переключения панели на светлую.
+class WindowsThemeEventFilter final : public QAbstractNativeEventFilter
+{
+public:
+    explicit WindowsThemeEventFilter(SmartClipApp *app) : m_app(app) {}
+
+    bool nativeEventFilter(const QByteArray &eventType, void *message,
+                           qintptr *result) override
+    {
+        Q_UNUSED(result);
+        if (eventType != "windows_generic_MSG" && eventType != "windows_dispatcher_MSG")
+            return false;
+
+        MSG *msg = static_cast<MSG *>(message);
+        if (!msg)
+            return false;
+
+        // WM_SETTINGCHANGE с «ImmersiveColorSet» — как раз смена оформления.
+        if (msg->message == WM_SETTINGCHANGE) {
+            if (m_app)
+                QMetaObject::invokeMethod(m_app, "onThemeTick", Qt::QueuedConnection);
+        }
+        return false;  // не перехватываем — пусть обрабатывает Qt
+    }
+
+private:
+    SmartClipApp *m_app = nullptr;
+};
 #endif
 
 // Инициализация статических полей
@@ -307,11 +357,24 @@ SmartClipApp::SmartClipApp(QObject *parent)
     }
 #endif
 
-#if defined(Q_OS_LINUX)
+#if defined(Q_OS_WIN)
+    // Windows не всегда шлёт colorSchemeChanged при смене цвета панели задач
+    // (это отдельная настройка SystemUsesLightTheme). Ловим системное
+    // сообщение WM_SETTINGCHANGE — тогда иконка меняется мгновенно,
+    // а не только по таймеру.
+    nativeEventFilter = new WindowsThemeEventFilter(this);
+    qApp->installNativeEventFilter(nativeEventFilter);
+#endif
+
+#if defined(Q_OS_LINUX) || defined(Q_OS_WIN)
     // На Linux/Wayland Qt НЕ получает colorScheme (Unknown), поэтому
     // colorSchemeChanged никогда не срабатывает — и иконка не меняется
-    // при переключении темы «на лету». Периодически перечитываем тему
-    // сами (gsettings), дёшево — раз в 5 с.
+    // при переключении темы «на лету».
+    //
+    // На Windows та же беда, но по другой причине: цвет ПАНЕЛИ ЗАДАЧ
+    // (SystemUsesLightTheme) можно поменять в параметрах, а Qt при этом
+    // не кидает colorSchemeChanged — иконка оставалась прежнего цвета.
+    // Поэтому периодически перечитываем тему сами, дёшево — раз в 5 с.
     iconThemeTimer = new QTimer(this);
     iconThemeTimer->setInterval(5000);
     connect(iconThemeTimer, &QTimer::timeout, this, &SmartClipApp::onThemeTick);
@@ -1093,6 +1156,31 @@ QString SmartClipApp::maskForMenuDisplay(const QString &text)
 
 bool SmartClipApp::desktopPrefersDark()
 {
+#if defined(Q_OS_WIN)
+    // Windows: тему ПАНЕЛИ ЗАДАЧ нельзя угадывать по colorScheme() — Qt
+    // отдаёт схему приложений, а панель живёт своей жизнью (тёмная панель
+    // при светлой теме — обычное дело). Спрашиваем сам Windows:
+    // SystemUsesLightTheme (HKCU\...\Themes\Personalize) = 1 → СВЕТЛАЯ панель.
+    // Реестр может отсутствовать (старые сборки) — тогда фолбэк ниже.
+    {
+        HKEY key = nullptr;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER,
+                L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                0, KEY_READ, &key) == ERROR_SUCCESS) {
+            DWORD value = 0;
+            DWORD size = sizeof(value);
+            DWORD type = 0;
+            const LONG rc = RegQueryValueExW(key, L"SystemUsesLightTheme", nullptr,
+                                             &type, reinterpret_cast<LPBYTE>(&value), &size);
+            RegCloseKey(key);
+            if (rc == ERROR_SUCCESS && type == REG_DWORD)
+                return value == 0;  // 0 → тёмная панель → нужна белая иконка
+        }
+    }
+    // Фолбэк: системная тема через uxtheme (1 = тёмное приложение).
+    // На панели задач это работает хуже, но лучше, чем ничего.
+#endif
+
     // 1) Qt 6.5+ знает тему сам — если ответ определённый, доверяем ему.
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     if (QStyleHints *h = qApp->styleHints()) {
@@ -1200,10 +1288,10 @@ void SmartClipApp::onThemeTick()
     updatePopupTheme();
 }
 
+
 void SmartClipApp::updateIcon()
 {
 #if defined(Q_OS_MAC)
-    // На macOS правильный подход для иконки в menu bar — "template" изображение.
     // Система сама окрашивает его в белый/черный в зависимости от фона панели.
     QIcon icon(":/icons/tray_black.svg");
     icon.setIsMask(true);

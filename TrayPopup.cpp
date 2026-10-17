@@ -727,9 +727,9 @@ void TrayPopup::showAt(const QPoint &anchor)
     // высоты экрана (при превышении — вертикальный скроллбар).
     updateContentSize(area);
 
-    // Встаём СРАЗУ ПОД точкой клика: левый край окна — от точки клика,
-    // ниже — небольшой отступ. Если правый край выходит за экран — сдвигаем
-    // влево. Если снизу не влезает — показываем НАД точкой клика.
+    // По умолчанию встаём СРАЗУ ПОД точкой клика: левый край окна — от
+    // точки клика, ниже — небольшой отступ. Если правый край выходит за
+    // экран — сдвигаем влево. Если снизу не влезает — показываем НАД точкой.
     constexpr int kGap = 6;
     constexpr int kMargin = 6;
 
@@ -740,6 +740,30 @@ void TrayPopup::showAt(const QPoint &anchor)
         x = area.right() - kMargin - width();
     if (x < area.left() + kMargin)
         x = area.left() + kMargin;
+
+#if defined(Q_OS_WIN)
+    // Windows: панель задач почти всегда СНИЗУ, и клик по иконке трея
+    // приходит у её верхней кромки. Попап «под точкой клика» уезжал бы за
+    // край экрана (и после зажима по высоте налезал на панель). Поэтому на
+    // Windows ставим окно НАД иконкой — и по горизонтали центрируем
+    // относительно неё, удерживая в пределах рабочей области.
+    Q_UNUSED(y);
+    x = anchor.x() - width() / 2;
+    if (x + width() > area.right() - kMargin)
+        x = area.right() - kMargin - width();
+    if (x < area.left() + kMargin)
+        x = area.left() + kMargin;
+
+    y = anchor.y() - kGap - height();
+    // Если сверху места нет (панель задач сверху или экран низкий) —
+    // падаем вниз, как на остальных платформах.
+    if (y < area.top() + kMargin)
+        y = anchor.y() + kGap;
+    if (y + height() > area.bottom() - kMargin)
+        y = area.bottom() - kMargin - height();
+    if (y < area.top() + kMargin)
+        y = area.top() + kMargin;
+#endif
 
     if (y + height() > area.bottom() - kMargin)
         y = anchor.y() - kGap - height();
