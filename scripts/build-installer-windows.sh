@@ -16,7 +16,7 @@
 #     --skip-build  не пересобирать бинарник (взять готовый из build-windows/)
 #     --jobs N      параллелизм сборки
 #     --version V   версия (по умолчанию — из VERSION.txt)
-#     --qt DIR      префикс Qt (по умолчанию $QT_PATH либо C:/Qt/6.8.3/mingw_64)
+#     --qt DIR      префикс Qt (по умолчанию $QT_PATH либо C:/Qt/6.11.2/mingw_64)
 #     --openssl DIR корень OpenSSL (по умолчанию $OPENSSL_ROOT_DIR)
 #     --no-zip      не собирать портативный ZIP (только установщик)
 #
@@ -29,7 +29,7 @@ DO_BUILD=1
 DO_ZIP_ARG=""
 JOBS="$(nproc 2>/dev/null || echo 4)"
 REL_VER=""
-QT_DIR="${QT_PATH:-C:/Qt/6.8.3/mingw_64}"
+QT_DIR="${QT_PATH:-C:/Qt/6.11.2/mingw_64}"
 OPENSSL_DIR="${OPENSSL_ROOT_DIR:-}"
 
 while [ $# -gt 0 ]; do
