@@ -69,8 +69,12 @@ find_iscc() {
         "${ISCC:-}"
         "/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
         "/c/Program Files/Inno Setup 6/ISCC.exe"
+        # Установка в профиль пользователя (/CURRENTUSER): не требует UAC.
+        "${USERPROFILE:+$(cygpath -u "$USERPROFILE" 2>/dev/null)/InnoSetup6/ISCC.exe}"
+        "/c/Users/$USER/InnoSetup6/ISCC.exe"
         "C:/Program Files (x86)/Inno Setup 6/ISCC.exe"
         "C:/Program Files/Inno Setup 6/ISCC.exe"
+        "C:/Users/$USER/InnoSetup6/ISCC.exe"
     )
     local c
     for c in "${cands[@]}"; do
