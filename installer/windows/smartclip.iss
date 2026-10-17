@@ -20,6 +20,11 @@
 #ifndef OutputDir
   #define OutputDir "..\..\dist"
 #endif
+; Корень проекта (LICENSE, icons/). Скрипт передаёт его явно, иначе
+; выводим из SourceDir (stage лежит в <project>/build-windows/win-stage/SmartClip).
+#ifndef ProjectDir
+  #define ProjectDir SourceDir + "\..\.."
+#endif
 
 #define AppName        "SmartClip"
 #define AppPublisher   "Aleksey Zhmikhov"
@@ -38,10 +43,10 @@ AppUpdatesURL={#AppURL}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
-LicenseFile={#SourceDir}\..\..\LICENSE
+LicenseFile={#ProjectDir}\LICENSE
 OutputDir={#OutputDir}
 OutputBaseFilename={#AppName}-{#AppVersion}-windows-x86_64-setup
-SetupIconFile={#SourceDir}\..\..\icons\SmartClip.ico
+SetupIconFile={#ProjectDir}\icons\SmartClip.ico
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
