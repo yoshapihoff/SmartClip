@@ -5,7 +5,7 @@ project(SmartClipTests)
 # Версия приложения лежит в корневом файле VERSION.txt. tests/ вызывает свой
 # project(), поэтому PROJECT_VERSION здесь пуст — читаем файл напрямую.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION.txt")
-    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION" SMARTCLIP_VERSION_RAW LIMIT_COUNT 1)
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION.txt" SMARTCLIP_VERSION_RAW LIMIT_COUNT 1)
     string(STRIP "${SMARTCLIP_VERSION_RAW}" SMARTCLIP_VERSION)
 else()
     set(SMARTCLIP_VERSION "0.0.0")
