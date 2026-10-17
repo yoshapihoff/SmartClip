@@ -38,9 +38,9 @@ done
 
 cd "$PROJECT_DIR"
 
-# Версия: аргумент → файл VERSION.
+# Версия: аргумент → файл VERSION.txt.
 if [ -z "$PKG_VER" ]; then
-    PKG_VER="$(tr -d '[:space:]' < "$PROJECT_DIR/VERSION")"
+    PKG_VER="$(tr -d '[:space:]' < "$PROJECT_DIR/VERSION.txt")"
 fi
 [[ "$PKG_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "некорректная версия: '$PKG_VER'"
 

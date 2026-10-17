@@ -11,7 +11,7 @@ name: release
 # АВТОМАТИЧЕСКИ не публикуются. macOS (.app/.zip/.dmg) Лёша добавляет к релизу
 # ВРУЧНУЮ. Собрать macOS-комплект локально на маке: scripts/release-macos.sh.
 #
-# Версия — из файла VERSION (авто-бамп patch на каждый коммит через
+# Версия — из файла VERSION.txt (авто-бамп patch на каждый коммит через
 # .githooks/pre-commit), тег релиза — v<version>.
 
 on:
@@ -47,7 +47,7 @@ jobs:
 
       - name: Read version
         id: v
-        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(tr -d '[:space:]' < VERSION.txt)" >> "$GITHUB_OUTPUT"
 
       - name: Build release artifacts
         run: scripts/release-linux.sh --jobs "$(nproc)"
@@ -106,7 +106,7 @@ jobs:
 
       - name: Read version
         id: v
-        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(tr -d '[:space:]' < VERSION.txt)" >> "$GITHUB_OUTPUT"
 
       - name: Build release artifacts (.app + zip + dmg)
         # macOS-пакет — best-effort: сбой (капризы Homebrew-qt/macdeployqt)

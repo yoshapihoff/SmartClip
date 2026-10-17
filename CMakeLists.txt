@@ -1,16 +1,19 @@
 cmake_minimum_required(VERSION 3.16)
 
 # ── Версия приложения ────────────────────────────────────────────────────
-# Единственный источник правды — файл VERSION в корне проекта (например «1.0.0»).
+# Единственный источник правды — файл VERSION.txt в корне проекта (например «1.0.0»).
+# ВАЖНО: именно VERSION.txt, а не VERSION — на Windows регистр имён не важен,
+# и файл «VERSION» в корне подменял бы стандартный заголовок C++ <version>
+# (ломало сборку: «too many decimal points in number»).
 # Читаем ДО project(), чтобы передать значение в project(VERSION ...) и потому в
 # CMake-переменную PROJECT_VERSION. Схема версионирования — в README (раздел
 # «Версионирование»), бамп — scripts/bump-version.sh (patch по умолчанию).
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
-    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" SMARTCLIP_VERSION_RAW LIMIT_COUNT 1)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION.txt")
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION.txt" SMARTCLIP_VERSION_RAW LIMIT_COUNT 1)
     string(STRIP "${SMARTCLIP_VERSION_RAW}" SMARTCLIP_VERSION)
 else()
     set(SMARTCLIP_VERSION "0.0.0")
-    message(WARNING "SmartClip: файл VERSION не найден — версия по умолчанию ${SMARTCLIP_VERSION}")
+    message(WARNING "SmartClip: файл VERSION.txt не найден — версия по умолчанию ${SMARTCLIP_VERSION}")
 endif()
 
 project(SmartClip VERSION ${SMARTCLIP_VERSION} LANGUAGES CXX)
@@ -76,7 +79,7 @@ target_link_libraries(SmartClip
 
 # ── Windows ───────────────────────────────────────────────────────────────
 # Иконка файла + VERSIONINFO живут в ресурсном скрипте, который генерируется
-# из шаблона resources.rc.in (версия берётся из файла VERSION, путь к иконке —
+# из шаблона resources.rc.in (версия берётся из файла VERSION.txt, путь к иконке —
 # абсолютный). Компилируется windres через язык RC (enable_language(RC) выше).
 #
 # Credential Manager (CredRead/CredWrite) и реестр (RegCreateKeyEx) — advapi32.

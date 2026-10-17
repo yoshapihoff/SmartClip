@@ -282,9 +282,9 @@ dist: appimage
 	@ls -lh dist/ 2>/dev/null || echo "(пусто)"
 
 # =========================
-# Release: сборка артефактов, привязанных к VERSION
+# Release: сборка артефактов, привязанных к VERSION.txt
 # =========================
-# Артефакты едут в dist/release-<version>/. Версия — из файла VERSION.
+# Артефакты едут в dist/release-<version>/. Версия — из файла VERSION.txt.
 .PHONY: release release-linux release-macos deb
 
 release-linux:

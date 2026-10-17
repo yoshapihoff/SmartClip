@@ -34,7 +34,7 @@ done
 cd "$PROJECT_DIR"
 
 if [ -z "$REL_VER" ]; then
-    REL_VER="$(tr -d '[:space:]' < "$PROJECT_DIR/VERSION")"
+    REL_VER="$(tr -d '[:space:]' < "$PROJECT_DIR/VERSION.txt")"
 fi
 [[ "$REL_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "некорректная версия: '$REL_VER'"
 

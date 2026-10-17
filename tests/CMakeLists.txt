@@ -2,9 +2,9 @@ cmake_minimum_required(VERSION 3.16)
 
 project(SmartClipTests)
 
-# Версия приложения лежит в корневом файле VERSION. tests/ вызывает свой
+# Версия приложения лежит в корневом файле VERSION.txt. tests/ вызывает свой
 # project(), поэтому PROJECT_VERSION здесь пуст — читаем файл напрямую.
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION.txt")
     file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION" SMARTCLIP_VERSION_RAW LIMIT_COUNT 1)
     string(STRIP "${SMARTCLIP_VERSION_RAW}" SMARTCLIP_VERSION)
 else()

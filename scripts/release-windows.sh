@@ -11,7 +11,7 @@
 #                              [--qt DIR] [--openssl DIR] [--no-zip]
 #     --skip-build  не пересобирать бинарник (взять build-windows/SmartClip.exe)
 #     --jobs N      параллелизм сборки
-#     --version V   версия (по умолчанию — из файла VERSION)
+#     --version V   версия (по умолчанию — из файла VERSION.txt)
 #     --qt DIR      префикс Qt (по умолчанию $QT_PATH либо C:/Qt/6.11.2/mingw_64)
 #     --openssl DIR корень OpenSSL (по умолчанию $OPENSSL_ROOT_DIR)
 #     --no-zip      только сложить набор в каталог, без архива
@@ -50,7 +50,7 @@ esac
 cd "$PROJECT_DIR"
 
 if [ -z "$REL_VER" ]; then
-    REL_VER="$(tr -d '[:space:]' < "$PROJECT_DIR/VERSION")"
+    REL_VER="$(tr -d '[:space:]' < "$PROJECT_DIR/VERSION.txt")"
 fi
 [[ "$REL_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "некорректная версия: '$REL_VER'"
 
