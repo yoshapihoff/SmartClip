@@ -1,19 +1,28 @@
 cmake_minimum_required(VERSION 3.16)
 
 # ── Версия приложения ────────────────────────────────────────────────────
-# Единственный источник правды — файл VERSION в корне проекта (например «1.0.0»).
+# Единственный источник правды — файл VERSION.txt в корне проекта (например «1.0.0»).
+# ВАЖНО: именно VERSION.txt, а не VERSION — на Windows регистр имён не важен,
+# и файл «VERSION» в корне подменял бы стандартный заголовок C++ <version>
+# (ломало сборку: «too many decimal points in number»).
 # Читаем ДО project(), чтобы передать значение в project(VERSION ...) и потому в
 # CMake-переменную PROJECT_VERSION. Схема версионирования — в README (раздел
 # «Версионирование»), бамп — scripts/bump-version.sh (patch по умолчанию).
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
-    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" SMARTCLIP_VERSION_RAW LIMIT_COUNT 1)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION.txt")
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION.txt" SMARTCLIP_VERSION_RAW LIMIT_COUNT 1)
     string(STRIP "${SMARTCLIP_VERSION_RAW}" SMARTCLIP_VERSION)
 else()
     set(SMARTCLIP_VERSION "0.0.0")
-    message(WARNING "SmartClip: файл VERSION не найден — версия по умолчанию ${SMARTCLIP_VERSION}")
+    message(WARNING "SmartClip: файл VERSION.txt не найден — версия по умолчанию ${SMARTCLIP_VERSION}")
 endif()
 
 project(SmartClip VERSION ${SMARTCLIP_VERSION} LANGUAGES CXX)
+
+# Windows: язык RC нужен для компиляции resources.rc (иконка + VERSIONINFO)
+# через windres. Включаем только под Windows — на других платформах его нет.
+if(WIN32)
+    enable_language(RC)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -67,6 +76,37 @@ target_link_libraries(SmartClip
         Qt6::Widgets
         Qt6::Svg
 )
+
+# ── Windows ───────────────────────────────────────────────────────────────
+# Иконка файла + VERSIONINFO живут в ресурсном скрипте, который генерируется
+# из шаблона resources.rc.in (версия берётся из файла VERSION.txt, путь к иконке —
+# абсолютный). Компилируется windres через язык RC (enable_language(RC) выше).
+#
+# Credential Manager (CredRead/CredWrite) и реестр (RegCreateKeyEx) — advapi32.
+if(WIN32)
+    set(SMARTCLIP_RC "${CMAKE_CURRENT_BINARY_DIR}/resources.rc")
+    set(SMARTCLIP_RC_ICON "${CMAKE_CURRENT_SOURCE_DIR}/icons/SmartClip.ico")
+    string(REPLACE "." ";" _ver_parts "${PROJECT_VERSION}")
+    list(GET _ver_parts 0 SMARTCLIP_RC_MAJOR)
+    list(GET _ver_parts 1 SMARTCLIP_RC_MINOR)
+    list(GET _ver_parts 2 SMARTCLIP_RC_PATCH)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/resources.rc.in"
+        "${SMARTCLIP_RC}"
+        @ONLY
+    )
+    target_sources(SmartClip PRIVATE "${SMARTCLIP_RC}")
+    set_source_files_properties("${SMARTCLIP_RC}" PROPERTIES LANGUAGE RC)
+
+    target_link_libraries(SmartClip PRIVATE advapi32)
+
+    # GUI-приложение: без консольного окна. Для отладки логов можно собрать
+    # с консолью: -DSMARTCLIP_WINDOWS_CONSOLE=ON.
+    option(SMARTCLIP_WINDOWS_CONSOLE "Windows: keep the console window (debug)" OFF)
+    if(NOT SMARTCLIP_WINDOWS_CONSOLE)
+        set_target_properties(SmartClip PROPERTIES WIN32_EXECUTABLE TRUE)
+    endif()
+endif()
 
 if(OpenSSL_FOUND)
     target_link_libraries(SmartClip PRIVATE OpenSSL::Crypto)

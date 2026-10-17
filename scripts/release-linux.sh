@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Сборка ВСЕХ релизных артефактов SmartClip под Linux в один прогон,
-# с привязкой к версии из файла VERSION.
+# с привязкой к версии из файла VERSION.txt.
 #
 # Артефакты (в dist/release-<version>/):
 #   • SmartClip-<version>-x86_64.AppImage   — «образ», самодостаточный, без установки
@@ -12,7 +12,7 @@
 #   scripts/release-linux.sh [--skip-build] [--jobs N] [--version X.Y.Z]
 #     --skip-build  не пересобирать бинарник (взять build-linux/SmartClip)
 #     --jobs N      параллелизм сборки
-#     --version V   версия (по умолчанию — из файла VERSION)
+#     --version V   версия (по умолчанию — из файла VERSION.txt)
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
@@ -36,7 +36,7 @@ done
 cd "$PROJECT_DIR"
 
 if [ -z "$REL_VER" ]; then
-    REL_VER="$(tr -d '[:space:]' < "$PROJECT_DIR/VERSION")"
+    REL_VER="$(tr -d '[:space:]' < "$PROJECT_DIR/VERSION.txt")"
 fi
 [[ "$REL_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "некорректная версия: '$REL_VER'"
 

@@ -282,9 +282,9 @@ dist: appimage
 	@ls -lh dist/ 2>/dev/null || echo "(пусто)"
 
 # =========================
-# Release: сборка артефактов, привязанных к VERSION
+# Release: сборка артефактов, привязанных к VERSION.txt
 # =========================
-# Артефакты едут в dist/release-<version>/. Версия — из файла VERSION.
+# Артефакты едут в dist/release-<version>/. Версия — из файла VERSION.txt.
 .PHONY: release release-linux release-macos deb
 
 release-linux:
@@ -305,7 +305,6 @@ else ifeq ($(PLATFORM),macos)
 else
 	@echo "release поддерживается на Linux и macOS"
 endif
-
 linux-install:
 	@./scripts/install-linux.sh --prefix $(PREFIX)
 
@@ -338,3 +337,24 @@ macos-test:
 # Готовый .app с упакованными Qt/OpenSSL, сложенный в dist/.
 bundle-macos:
 	@./scripts/build-macos.sh --bundle --dist
+
+# =========================
+# Convenience: windows-specific targets
+# =========================
+# Запускать в окружении MinGW-w64 (Qt 6.11.2 MinGW из «Пуск» или MSYS2).
+
+.PHONY: windows windows-build windows-run windows-test release-windows
+
+windows: windows-build
+
+windows-build:
+	@$(MAKE) build BUILD_DIR=build-windows GENERATOR="MinGW Makefiles"
+
+windows-run:
+	@$(MAKE) run BUILD_DIR=build-windows
+
+windows-test:
+	@$(MAKE) test BUILD_DIR=build-windows
+
+release-windows:
+	@./scripts/release-windows.sh

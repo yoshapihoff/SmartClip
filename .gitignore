@@ -3,6 +3,7 @@ build/
 *.build/
 build-macos/
 build-linux/
+build-windows/
 
 # CMake generated files
 CMakeCache.txt
@@ -16,6 +17,10 @@ cmake_install.cmake
 moc_*.cpp
 *.qrc.cpp
 *.ui_*.h
+
+# Windows generated (resources.rc генерится в build-windows/ из resources.rc.in)
+*.res
+*.rc.o
 
 # Compiled binaries
 *.app/

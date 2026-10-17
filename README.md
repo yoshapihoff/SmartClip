@@ -1,12 +1,12 @@
 # SmartClip — Clipboard History Manager
 
 Кроссплатформенный менеджер истории буфера обмена, живущий в system tray.
-Поддерживает macOS и Linux.
+Поддерживает macOS, Linux и Windows.
 
 ## About
 
 - **Название:** SmartClip — Clipboard History Manager
-- **Версия:** 1.0.17 (актуальное значение — в файле [`VERSION`](VERSION))
+- **Версия:** 1.0.17 (актуальное значение — в файле [`VERSION.txt`](VERSION.txt))
 - **Автор:** Aleksey Zhmikhov ([@yoshapihoff](https://github.com/yoshapihoff))
 - **Лицензия:** [MIT](LICENSE)
 
@@ -26,13 +26,13 @@
 |-------|-----------|
 | Qt 6.2+ (Widgets) | UI framework |
 | CMake 3.16+ | Система сборки |
-| Компилятор C++17 | GCC 9+, Clang 10+ |
+| Компилятор C++17 | GCC 9+, Clang 10+, MSVC 2019+ / MinGW-w64 |
 | `libxkbcommon` (Linux, опционально) | Карты раскладок для смены раскладки текста |
 
 > `libxkbcommon` — необязательная зависимость: она тянется вместе с Qt6 GUI
 > почти везде, но если её нет при сборке — приложение собирается, а смена
-> раскладки работает в режиме us↔ru. На macOS системный фреймворк Carbon
-> используется автоматически. |
+> раскладки работает в режиме us↔ru. На macOS системный фреймворк Carbon, а на
+> Windows — Win32-раскладки (`ToUnicodeEx`) используются автоматически. |
 
 ### Установка зависимостей
 
@@ -56,10 +56,14 @@ sudo pacman -S qt6-base cmake
 brew install qt@6 cmake
 ```
 
+**Windows:** Qt 6.11.2 (MinGW 64-bit) + собственный OpenSSL 3.x — пошаговый
+гайд: **[docs/BUILD-WINDOWS.md](docs/BUILD-WINDOWS.md)**.
+
 ## Сборка и установка
 
 Все сценарии — в каталоге **[`scripts/`](scripts/)**. Пошаговые гайды по
-зависимостям: **[Linux](docs/BUILD-LINUX.md)** · **[macOS](docs/BUILD-MACOS.md)**.
+зависимостям: **[Linux](docs/BUILD-LINUX.md)** · **[macOS](docs/BUILD-MACOS.md)** ·
+**[Windows](docs/BUILD-WINDOWS.md)**.
 
 | Скрипт | Что делает |
 |--------|------------|
@@ -68,6 +72,8 @@ brew install qt@6 cmake
 | `scripts/uninstall-linux.sh` | Удаление установленного приложения |
 | `scripts/build-appimage.sh` | Портативный **AppImage** (Qt6/OpenSSL внутрь, без системного Qt) |
 | `scripts/build-macos.sh` | Сборка **SmartClip.app** на macOS (+ `--bundle`) |
+| `scripts/build-windows.sh` | Сборка **SmartClip.exe** под Windows (MinGW, + `--test`) |
+| `scripts/release-windows.sh` | Портативный **ZIP** для Windows (windeployqt + OpenSSL внутрь) |
 
 ### Linux — AppImage (портативно, без системного Qt6)
 
@@ -332,9 +338,14 @@ make test                  # тесты (offscreen)
 
 ## Версионирование
 
-Версия хранится в файле **`VERSION`** в корне проекта — это единственный
+> **Почему `VERSION.txt`, а не `VERSION`:** на Windows имена файлов
+> регистронезависимы, и файл `VERSION` в корне проекта подменял бы
+> стандартный заголовок C++ `<version>` — сборка падала с
+> «too many decimal points in number».
+
+Версия хранится в файле **`VERSION.txt`** в корне проекта — это единственный
 источник правды. Формат — `MAJOR.MINOR.PATCH` (SemVer). Текущую версию
-смотри в самом файле `VERSION` (стартовая была **1.0.0**).
+смотри в самом файле `VERSION.txt` (стартовая была **1.0.0**).
 
 Схема:
 
@@ -344,7 +355,7 @@ make test                  # тесты (offscreen)
   указанию** (вручную или переменной окружения), когда это понадобится:
   `1.0.5 → 1.1.0` (minor), `1.4.2 → 2.0.0` (major).
 
-Как это работает технически: CMake читает `VERSION` до `project()`, поэтому
+Как это работает технически: CMake читает `VERSION.txt` до `project()`, поэтому
 `PROJECT_VERSION` совпадает с файлом; версия прокидывается в код через
 `SMARTCLIP_VERSION` (см. `Version.h`), показывается в окне **About** и в
 подсказке трея, и задаёт `CFBundleShortVersionString`/`CFBundleVersion` для
@@ -353,7 +364,7 @@ macOS-бандла.
 ### Авто-бамп на коммитах (git-хук)
 
 В репозитории лежит хук `.githooks/pre-commit`, который перед каждым коммитом
-инкрементит PATCH и добавляет `VERSION` в коммит. Включить один раз:
+инкрементит PATCH и добавляет `VERSION.txt` в коммит. Включить один раз:
 
 ```bash
 make hooks        # git config core.hooksPath .githooks
@@ -390,7 +401,7 @@ scripts/bump-version.sh --set 1.2.3
 ## Релизные артефакты
 
 Артефакты собираются **в папке `dist/release-<version>/`**, где `<version>`
-берётся из файла `VERSION`. То есть обновил версию (например, patch-бампом на
+берётся из файла `VERSION.txt`. То есть обновил версию (например, patch-бампом на
 коммите) — собрал релиз — получил комплект с этой версией в имени и в метаданных.
 
 | Платформа | Артефакт | Что это |
@@ -400,7 +411,8 @@ scripts/bump-version.sh --set 1.2.3
 | Linux | `SmartClip-<ver>-linux-x86_64.tar.gz` | портативный архив (бинарник + .desktop + иконка) |
 | macOS | `SmartClip-<ver>-macos-<arch>.zip` | `.app` со **вложенными** Qt/OpenSSL (запуск без доп. установок) |
 | macOS | `SmartClip-<ver>-macos-<arch>.dmg` | то же в виде образa-установщика (если доступен `hdiutil`) |
-| обе | `SHA256SUMS` | контрольные суммы |
+| Windows | `SmartClip-<ver>-windows-x86_64.zip` | портативный набор: `.exe` + Qt/OpenSSL/MQTT (`windeployqt`) |
+| все | `SHA256SUMS` | контрольные суммы |
 
 ### Linux
 
@@ -433,6 +445,17 @@ make release-macos        # или: scripts/release-macos.sh   (только н�
 > **Почему только на macOS:** `macdeployqt`, `otool`, `install_name_tool`,
 > `codesign`, `hdiutil` — это инструменты Apple. На Linux `.app` с вложенными
 > dylib не собрать. Варианты: локально на маке **или** macOS-раннер в CI.
+
+### Windows (требует Windows + MinGW)
+
+```bash
+scripts/release-windows.sh      # только на Windows/MinGW
+# → dist/release-<version>/SmartClip-<version>-windows-x86_64.zip
+```
+
+Собирает `.exe`, прогоняет `windeployqt` (Qt-DLL + плагины + рантайм MinGW),
+кладёт рядом OpenSSL-DLL, упаковывает в ZIP. Подробности —
+[docs/BUILD-WINDOWS.md](docs/BUILD-WINDOWS.md).
 
 ### CI
 
@@ -481,21 +504,22 @@ tекста: us→ru, round-trip ru→us→ru, «нечего менять», н
 .
 ├── CMakeLists.txt          # Основной CMake
 ├── LICENSE                 # Лицензия (MIT)
-├── VERSION                 # Версия приложения (единственный источник правды)
+├── VERSION.txt             # Версия приложения (единственный источник правды)
 ├── Version.h               # C++-обёртка над версией (SMARTCLIP_VERSION_STRING)
 ├── .githooks/pre-commit    # Авто-бамп patch-версии перед коммитом
 ├── Makefile                # Удобные цели (обёртки над scripts/)
 ├── scripts/                # Сборка/установка/упаковка (build-linux, install-linux,
 │                           #   uninstall-linux, build-appimage, build-macos,
 │                           #   bump-version.sh, lib.sh)
-├── docs/                   # Гайды по сборке (BUILD-LINUX/MACOS)
+├── docs/                   # Гайды по сборке (BUILD-LINUX/MACOS/WINDOWS)
 ├── assets/
 │   └── smartclip.desktop   # Linux: интеграция в DE
-├── icons/                  # Иконки (.png, .svg, .icns)
+├── icons/                  # Иконки (.png, .svg, .icns, .ico)
+├── resources.rc.in         # Windows: шаблон иконки + VERSIONINFO (.exe)
 ├── tests/                  # Модульные тесты
 ├── SmartClipApp.cpp/h      # Основная логика приложения
 ├── HistoryManager.cpp/h    # Управление историей буфера (+ tombstone'ы)
-├── LayoutConverter.cpp/h   # Смена раскладки текста (xkbcommon / macOS TIS)
+├── LayoutConverter.cpp/h   # Смена раскладки текста (xkbcommon / macOS TIS / Win32)
 ├── SyncEngine.cpp/h        # Ядро слияния master/slave (без сети)
 ├── SyncManager.cpp/h       # Оркестратор синка (MQTT, шифрование, роли)
 ├── MqttClient.cpp/h        # Обёртка над QMqttClient (опционально)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Бамп версии SmartClip в файле VERSION.
+# Бамп версии SmartClip в файле VERSION.txt.
 #
 # Схема: MAJOR.MINOR.PATCH. Обычный коммит инкрементит МЛАДШЕЕ число (PATCH,
 # третья цифра). MINOR (средняя) и MAJOR (старшая) меняются только по явному
@@ -15,7 +15,7 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-VERSION_FILE="$PROJECT_DIR/VERSION"
+VERSION_FILE="$PROJECT_DIR/VERSION.txt"
 [ -f "$VERSION_FILE" ] || die "не найден файл версии: $VERSION_FILE"
 
 PART="patch"
