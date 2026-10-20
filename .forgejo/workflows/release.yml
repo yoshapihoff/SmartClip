@@ -45,7 +45,7 @@ env:
   # Qt 6.10.2 из Online Installer: В НЁМ есть модуль Qt6Mqtt (в apt-пакетах
   # Ubuntu qt6-mqtt-dev отсутствует). Префикс обязателен ДЛЯ СБОРКИ И ДЛЯ
   # linuxdeploy — иначе в AppImage уедет системный Qt без синхронизации.
-  SMARTCLIP_QT_DIR: /home/mario/Qt/6.10.2/gcc_64
+  SMARTCLIP_QT_DIR: /opt/qt-6.10.2/gcc_64
 
 jobs:
   linux:
@@ -91,13 +91,11 @@ jobs:
         run: |
           set -euo pipefail
           QTDIR="${SMARTCLIP_QT_DIR:-}"
-          if [ -n "$QTDIR" ] && [ -x "$QTDIR/bin/qmake6" ]; then
-            echo "Qt с MQTT: $QTDIR"
-            scripts/release-linux.sh --jobs "$(nproc)" --qt "$QTDIR"
-          else
-            echo "::warning::Qt с Qt6Mqtt не найден ($QTDIR) — сборка БЕЗ синхронизации"
-            scripts/release-linux.sh --jobs "$(nproc)"
-          fi
+          [ -n "$QTDIR" ] || { echo "::error::SMARTCLIP_QT_DIR не задан — релиз должен быть с MQTT"; exit 1; }
+          [ -x "$QTDIR/bin/qmake6" ] || { echo "::error::нет $QTDIR/bin/qmake6 (Qt должен быть доступен раннеру)"; exit 1; }
+          [ -f "$QTDIR/lib/cmake/Qt6Mqtt/Qt6MqttConfig.cmake" ] || { echo "::error::в $QTDIR нет модуля Qt6Mqtt"; exit 1; }
+          echo "Qt с MQTT: $QTDIR"
+          scripts/release-linux.sh --jobs "$(nproc)" --qt "$QTDIR"
         env:
           SMARTCLIP_TOOLS_DIR: ${{ runner.temp }}/smartclip-tools
 
