@@ -1,58 +1,95 @@
 name: release
 
-# Сборка релизных артефактов SmartClip при обновлении версии (push в main).
+# Сборка релизных артефактов SmartClip на self-hosted раннере Forgejo (mserver).
 #
-# Версия берётся из файла VERSION (который авто-бампается pre-commit-хуком на
-# каждый коммит), поэтому каждый push в main приносит новую версию → новый релиз.
-# Артефакты прикрепляются к релизу с тегом v<version> в Forgejo.
+# ВАЖНО про окружение: раннер — HOST-раннер (не docker), работает под
+# пользователем `runner` без sudo. Поэтому:
+#   • шага "apt-get install" здесь НЕТ и быть не должно — он ронял джобу на
+#     первой же строке ("sudo: I'm sorry runner. I'm afraid I can't do that");
+#   • все зависимости сборки заранее стоят на хосте (см. docs/BUILD-LINUX.md).
+# Всё, что нужно для Linux-сборки: cmake, ninja/make, g++, pkg-config,
+# libssl-dev, qt6-base-dev, qt6-svg-dev, libxkbcommon-dev, libgl-dev.
+# Qt6::Mqtt в репозиториях Ubuntu отсутствует — сборка идёт БЕЗ сетевой
+# синхронизации (CMake честно пишет warning, синк просто выключен в UI).
 #
-# Раннер: Linux (self-hosted Forgejo Actions). Здесь собираются только Linux-
-# артефакты. macOS-сборка (в GitHub Actions) запускается ТОЛЬКО вручную
-# (workflow_dispatch) и автоматически в релиз не публикуется — Лёша добавляет
-# macOS-артефакты вручную (решение 07.10.2026).
+# Триггеры:
+#   • push в main — релиз собирается и публикуется автоматически, но только
+#     если версия из VERSION.txt ещё не имеет тега v<version> (либо тег есть,
+#     но версия пересобрана заново). Иначе сборочные шаги пропускаются, чтобы
+#     не гонять релиз на каждый мелкий коммит;
+#   • workflow_dispatch — принудительная пересборка и перезаливка ассетов.
+#
+# Платформы: здесь — только Linux (AppImage/deb/tar.gz) — единственное, что
+# физически собирается на этом раннере. Windows и macOS собираются отдельно
+# (winpc по SSH / iMac) и доливаются в тот же релиз скриптом
+# scripts/release-all.sh (решение 20.10.2026).
+#
+# Версия берётся из VERSION.txt (авто-бамп patch через .githooks/pre-commit),
+# тег релиза — v<version>. Публикация в релиз Forgejo — через API с токеном
+# из секрета репозитория RELEASE_TOKEN.
 
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 env:
-  GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+  TAG_PREFIX: v
+  APP_NAME: SmartClip
 
 jobs:
   linux:
-    runs-on: ubuntu-latest
+    name: Linux artifacts (build + publish)
+    runs-on: host
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      uploaded: ${{ steps.v.outputs.uploaded }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Install build dependencies (Qt6 + OpenSSL)
-        run: |
-          set -eux
-          sudo apt-get update
-          # Базовые (обязательные): Qt6 Widgets/Svg/Network/DBus + OpenSSL.
-          sudo apt-get install -y --no-install-recommends \
-              cmake ninja-build g++ pkg-config \
-              libssl-dev \
-              qt6-base-dev qt6-svg-dev \
-              libgl1-mesa-dev libxkbcommon-dev
-          # MQTT — опционален (синк можно выключить). Если пакета нет, сборка
-          # всё равно пройдёт: CMake выдаст WARNING и соберёт без синка.
-          sudo apt-get install -y --no-install-recommends qt6-mqtt-dev || \
-              echo "Qt6 MQTT недоступен — собираю без сетевой синхронизации"
-
-      - name: Read version
+      - name: Read version + decide whether to publish
         id: v
-        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '[:space:]' < VERSION.txt)"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::некорректная версия в VERSION.txt: '$VERSION'"; exit 1; }
+          TAG="${TAG_PREFIX}${VERSION}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Build release artifacts
+          # Публикуем, если: запуск ручной, ИЛИ тега v<version> ещё нет
+          # (т.е. пришёл коммит с новой версией), ИЛИ тег указывает не на этот коммит.
+          UPLOAD=false
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            UPLOAD=true
+          elif ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "тега $TAG нет — это новая версия, публикуем"
+            UPLOAD=true
+          elif [ "$(git rev-list -n1 "$TAG")" != "$GITHUB_SHA" ]; then
+            echo "тег $TAG есть, но архив изменился — публикуем (перезаливка ассетов)"
+            UPLOAD=true
+          else
+            echo "версия $VERSION уже опубликована — сборочные шаги пропускаются"
+          fi
+          echo "uploaded=$UPLOAD" >> "$GITHUB_OUTPUT"
+
+      - name: Build release artifacts (Linux)
+        if: ${{ steps.v.outputs.uploaded == 'true' }}
         run: scripts/release-linux.sh --jobs "$(nproc)"
         env:
           SMARTCLIP_TOOLS_DIR: ${{ runner.temp }}/smartclip-tools
 
-      - name: Upload artifacts (workflow)
+      - name: Upload workflow artifacts
+        if: ${{ steps.v.outputs.uploaded == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: smartclip-linux-${{ steps.v.outputs.version }}
@@ -60,36 +97,60 @@ jobs:
           if-no-files-found: error
 
       - name: Publish release to Forgejo
+        if: ${{ steps.v.outputs.uploaded == 'true' }}
         env:
           VERSION: ${{ steps.v.outputs.version }}
+          TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           set -euo pipefail
-          TAG="v$VERSION"
+          [ -n "${TOKEN:-}" ] || { echo "::error::секрет RELEASE_TOKEN не задан"; exit 1; }
+          TAG="${TAG_PREFIX}${VERSION}"
           API="https://git.halfpi.ru/api/v1/repos/mario/smartclip/releases"
           DIR="dist/release-$VERSION"
+          [ -d "$DIR" ] || { echo "::error::нет каталога $DIR"; exit 1; }
 
-          EXISTING=$(curl -s -H "Authorization: token $GH_TOKEN" \
-            "https://git.halfpi.ru/api/v1/repos/mario/smartclip/releases/tags/$TAG" \
-            | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('id',''))" 2>/dev/null || echo "")
+          # 1. Найти существующий релиз или создать новый.
+          RELEASE_ID="$(curl -sSf -H "Authorization: token $TOKEN" \
+              "$API/tags/$TAG" \
+            | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)"
 
-          if [ -n "$EXISTING" ]; then
-            RELEASE_ID="$EXISTING"
+          if [ -n "$RELEASE_ID" ]; then
             echo "релиз $TAG уже есть (id=$RELEASE_ID) — обновляю ассеты"
           else
-            RELEASE_ID=$(curl -s -H "Authorization: token $GH_TOKEN" -H "Content-Type: application/json" \
-              -X POST "$API" \
-              -d "{\"tag_name\":\"$TAG\",\"name\":\"SmartClip $VERSION\",\"body\":\"Релиз SmartClip $VERSION. Собрано из main ($GITHUB_SHA).\",\"draft\":false,\"prerelease\":false,\"target_commitish\":\"main\"}" \
-              | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['id'])")
+            RELEASE_ID="$(curl -sSf -H "Authorization: token $TOKEN" \
+                -H 'Content-Type: application/json' -X POST "$API" \
+                -d "{\"tag_name\":\"$TAG\",\"name\":\"SmartClip $VERSION\",\"body\":\"Сборка SmartClip $VERSION (Linux, CI). Windows и macOS доливаются отдельно.\",\"draft\":false,\"prerelease\":false,\"target_commitish\":\"$GITHUB_SHA\"}" \
+              | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")"
             echo "создан релиз $TAG (id=$RELEASE_ID)"
           fi
 
+          # 2. Залить ассеты (идемпотентно: прежний ассет с тем же именем удаляем).
+          shopt -s nullglob
           for f in "$DIR"/*; do
+            [ -f "$f" ] || continue
             name="$(basename "$f")"
-            # Удаляем прежний ассет с тем же именем (идемпотентность).
-            curl -s -H "Authorization: token $GH_TOKEN" "$API/$RELEASE_ID/assets?name=$name" \
-              | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))" 2>/dev/null \
-              | while read -r aid; do [ -n "$aid" ] && curl -s -X DELETE -H "Authorization: token $GH_TOKEN" "$API/$RELEASE_ID/assets/$aid" >/dev/null; done || true
-            curl -s -o /dev/null -w "asset $name: HTTP %{http_code}\n" \
-              -H "Authorization: token $GH_TOKEN" \
-              -F "attachment=@$f" "$API/$RELEASE_ID/assets?name=$name"
+            OLD_ID="$(curl -s -H "Authorization: token $TOKEN" \
+                "$API/$RELEASE_ID/assets?name=$name" \
+              | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('id','') if isinstance(d,dict) else '')" 2>/dev/null || true)"
+            if [ -n "$OLD_ID" ]; then
+              curl -sS -o /dev/null -X DELETE -H "Authorization: token $TOKEN" \
+                "$API/$RELEASE_ID/assets/$OLD_ID"
+              echo "удалён прежний ассет $name (id=$OLD_ID)"
+            fi
+            code="$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: token $TOKEN" \
+                -F "attachment=@$f" "$API/$RELEASE_ID/assets?name=$name")"
+            echo "asset $name: HTTP $code"
+            case "$code" in 2*) ;; *) echo "::error::не удалось залить $name (HTTP $code)"; exit 1 ;; esac
           done
+          echo "релиз $TAG опубликован: https://git.halfpi.ru/mario/smartclip/releases/tag/$TAG"
+
+      - name: Summary
+        run: |
+          {
+            echo "### SmartClip ${{ steps.v.outputs.version }}"
+            if [ "${{ steps.v.outputs.uploaded }}" = "true" ]; then
+              echo "Linux-артефакты собраны и выложены в релиз \`v${{ steps.v.outputs.version }}\`."
+            else
+              echo "Версия \`${{ steps.v.outputs.version }}\` уже опубликована — сборка пропущена."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
