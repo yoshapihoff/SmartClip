@@ -179,12 +179,25 @@ if [ "$DO_BUNDLE" -eq 1 ]; then
         base="$(basename "$src")"
         dest="$FW/$base"
         if [ ! -f "$dest" ]; then
-            cp -f "$src" "$dest"; chmod u+w "$dest"
+            # -L: "$src" обычно приходит из /usr/local/opt/… (симлинк на Cellar),
+            # копируем настоящий файл, а не симлинк.
+            cp -fL "$src" "$dest"; chmod u+w "$dest"
         fi
         "$INT" -id "@rpath/$base" "$dest" 2>/dev/null || true
+        # Ссылки на libcrypto/libssl переписываем на @rpath ПО ИМЕНИ библиотеки,
+        # а не по точному пути: otool у вложенной dylib показывает РЕАЛЬНЫЙ путь
+        # (/usr/local/Cellar/openssl@3/3.6.5/lib/…), отличный от симлинка
+        # /usr/local/opt/openssl@3/lib/…, и сравнение по строке не срабатывало →
+        # libssl.3.dylib оставался привязан к Homebrew и .app падал на чужой машине.
         while IFS= read -r m; do
-            otool -L "$m" 2>/dev/null | grep -Fq "$src" || continue
-            "$INT" -change "$src" "@rpath/$base" "$m" 2>/dev/null || true
+            local old
+            while IFS= read -r old; do
+                case "$old" in
+                    @rpath/*) continue ;;
+                esac
+                "$INT" -change "$old" "@rpath/$base" "$m" 2>/dev/null || true
+            done < <(otool -L "$m" 2>/dev/null | tail -n +2 | awk '{print $1}' \
+                     | grep -E "/lib(crypto|ssl)\.?[0-9]*\.dylib$" || true)
         done < <(find "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/PlugIns" -type f 2>/dev/null)
     }
     for lib in libcrypto libssl; do

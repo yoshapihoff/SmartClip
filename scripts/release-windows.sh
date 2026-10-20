@@ -77,18 +77,34 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE/$APP_NAME"
 cp "$BIN" "$STAGE/$APP_NAME/"
 
+# --dir и путь к .exe — это ОДИН аргумент windeployqt, поэтому каталог
+# назначения остаётся чистым ($WIN_PREFIX). Каталоги доп. поиска DLL передаются
+# ОТДЕЛЬНЫМИ флагами -libdir (Qt ищет в них зависимости). Раньше путь Qt/OpenSSL
+# дописывался через «;» прямо В КАТАЛОГ НАЗНАЧЕНИЯ — из MSYS это превращалось в
+# «\c\Users\…\SmartClip;\c\msys64…», и windeployqt падал.
 WIN_PREFIX="$STAGE/$APP_NAME"
-[ -n "$OPENSSL_DIR" ] && WIN_PREFIX="$WIN_PREFIX;$OPENSSL_DIR"
+WIN_LIBDIRS=()
+if command -v cygpath >/dev/null 2>&1; then
+    QTW="$(cygpath -w "$QT_DIR")"
+    [ -n "$OPENSSL_DIR" ] && {
+        OPENSSL_W="$(cygpath -w "$OPENSSL_DIR")"
+        WIN_LIBDIRS+=( "-libdir=$OPENSSL_W/bin" "-libdir=$OPENSSL_W/lib" )
+    }
+else
+    QTW="$QT_DIR"
+    [ -n "$OPENSSL_DIR" ] && WIN_LIBDIRS+=( "-libdir=$OPENSSL_DIR/bin" "-libdir=$OPENSSL_DIR/lib" )
+fi
 
-WINDEPLOYQT="$QT_DIR/bin/windeployqt.exe"
-[ -f "$WINDEPLOYQT" ] || WINDEPLOYQT="$QT_DIR/bin/windeployqt"
-[ -f "$WINDEPLOYQT" ] || die "windeployqt не найден в $QT_DIR/bin (проверь --qt)."
+WINDEPLOYQT="$(cygpath -w "$QT_DIR/bin/windeployqt.exe" 2>/dev/null || echo "$QT_DIR/bin/windeployqt.exe")"
+[ -f "$QT_DIR/bin/windeployqt.exe" ] || WINDEPLOYQT="$QT_DIR/bin/windeployqt"
+[ -f "$QT_DIR/bin/windeployqt.exe" ] || [ -f "$QT_DIR/bin/windeployqt" ] || \
+    die "windeployqt не найден в $QT_DIR/bin (проверь --qt)."
 
 # --release: только релизные DLL; --compiler-runtime: тянет libgcc/libstdc++/libwinpthread.
 "$WINDEPLOYQT" --release --compiler-runtime --no-translations \
-    --dir "$WIN_PREFIX" "$WIN_PREFIX/$APP_NAME.exe" || \
-    "$WINDEPLOYQT" --release --compiler-runtime --dir "$WIN_PREFIX" \
-        "$WIN_PREFIX/$APP_NAME.exe"
+    ${WIN_LIBDIRS[@]+"${WIN_LIBDIRS[@]}"} \
+    --dir "$(cygpath -m "$WIN_PREFIX" 2>/dev/null || echo "$WIN_PREFIX")" \
+    "$(cygpath -m "$WIN_PREFIX/$APP_NAME.exe" 2>/dev/null || echo "$WIN_PREFIX/$APP_NAME.exe")"
 
 # ── OpenSSL DLL ──────────────────────────────────────────────────────────
 # Qt не поставляет OpenSSL. Копируем libcrypto/libssl из --openssl, иначе —

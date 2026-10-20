@@ -61,9 +61,12 @@ while IFS= read -r f; do
     # Внешняя зависимость = абсолютный путь ВНЕ бандла и вне /usr/lib,
     # /System (Homebrew/opt, /usr/local, /Volumes/Qt/…). Ссылки на файлы
     # ВНУТРИ .app допустимы — sanitize переводит их в @rpath.
+    # Ссылки на файлы ВНУТРИ .app допустимы — но otool отдаёт там РЕАЛЬНЫЙ путь
+    # (канонический, без …/…/build-macos/../../), поэтому сравниваем и с
+    # `pwd -P`-версией пути к бандлу, а не только с «как передали в аргументе».
     ext="$(otool -L "$f" 2>/dev/null | tail -n +2 | awk '{print $1}' \
            | grep -E '^/' | grep -vE '^/usr/lib/|^/System/' \
-           | grep -vF "$APP/" || true)"
+           | grep -vF "$APP/" | grep -vF "$(cd "$APP" && pwd -P)/" || true)"
     if [ -n "$ext" ]; then
         warn "$(basename "$f") ссылается на внешние пути:"; echo "$ext" | sed 's/^/    /' >&2
         bad=1

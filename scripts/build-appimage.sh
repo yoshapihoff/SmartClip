@@ -85,6 +85,20 @@ export QMAKE="$(command -v qmake6 || command -v qmake)"
 # Qt-библиотеки имеют RUNPATH $ORIGIN → strip на них падает и валит
 # “Failed to execute deferred operations”. Отключаем strip.
 export NO_STRIP=1 DONT_STRIP=1
+# libtiff: официальные сборки Qt (6.10 из aqt, 6.5 из Online Installer) линкуют
+# плагин libqtiff.so против libtiff.so.5, а в современных дистрибутивах есть
+# только libtiff.so.6 (Ubuntu 24.04+/26.04). Кладём рядом симлинк .so.5 → .so.6
+# и отдаём linuxdeploy путь как LDPATH — иначе деплой падает
+# «Could not find dependency: libtiff.so.5».
+TIFF_REAL="$( (ls /usr/lib/x86_64-linux-gnu/libtiff.so.6* \
+               /usr/lib64/libtiff.so.6* 2>/dev/null || true) | head -1)"
+if [ -n "$TIFF_REAL" ] && [ ! -e "$TOOLS_DIR/libtiff.so.5" ]; then
+    ln -sf "$TIFF_REAL" "$TOOLS_DIR/libtiff.so.5"
+fi
+LDPATH_EXTRA="$TOOLS_DIR"
+if [ -n "${LD_LIBRARY_PATH:-}" ]; then LDPATH_EXTRA="$LDPATH_EXTRA:$LD_LIBRARY_PATH"; fi
+
+DONT_STRIP=1 NO_STRIP=1 LDPATH="$LDPATH_EXTRA" \
 run_appimage_tool "$TOOLS_DIR/linuxdeploy-x86_64.AppImage" \
     --appdir "$APPDIR" \
     --plugin qt \
