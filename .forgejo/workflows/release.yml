@@ -175,8 +175,10 @@ jobs:
           VERSION: ${{ needs.linux.outputs.version }}
         run: |
           set -euo pipefail
+          # Проверяем по КОДУ ВОЗВРАТА: winpc отдаёт cmd в CP866, и grep по
+          # тексту даёт ложный «недоступен» (грабля 20.10.2026).
           SSH_OPTS=(-F "$SMARTCLIP_SSH_CONFIG" -o ConnectTimeout=15 -o BatchMode=yes)
-          ssh "${SSH_OPTS[@]}" winpc 'cmd /c "echo OK"' | grep -q OK \
+          ssh "${SSH_OPTS[@]}" winpc 'exit 0' \
             || { echo "::error::winpc недоступен (выключен или не в нужной сети)"; exit 1; }
           TARBALL="/tmp/smartclip-$VERSION.tar.gz"
           git archive --format=tar.gz -o "$TARBALL" HEAD
@@ -215,13 +217,22 @@ jobs:
         run: |
           set -euo pipefail
           SSH_OPTS=(-F "$SMARTCLIP_SSH_CONFIG" -o ConnectTimeout=15 -o BatchMode=yes)
-          ssh "${SSH_OPTS[@]}" imac 'true' \
+          ssh "${SSH_OPTS[@]}" imac 'exit 0' \
             || { echo "::error::iMac недоступен (выключен или его Wi-Fi не в сети RT-GPON-7A88)"; exit 1; }
           REMOTE=/tmp/smartclip-release
           TARBALL="/tmp/smartclip-$VERSION.tar.gz"
           git archive --format=tar.gz -o "$TARBALL" HEAD
           scp -F "$SMARTCLIP_SSH_CONFIG" -q "$TARBALL" "imac:$REMOTE-src.tar.gz"
-          ssh -F "$SMARTCLIP_SSH_CONFIG" imac "set -eu; rm -rf $REMOTE && mkdir -p $REMOTE && tar -xzf $REMOTE-src.tar.gz -C $REMOTE && cd $REMOTE && bash scripts/release-macos.sh --jobs 4"
+          # На iMac cmake лежит в /usr/local/bin (не в PATH неинтерактивного ssh),
+          # Qt — на внешнем диске: /Volumes/HDD/qt/6.5.3/macos (есть Qt6Mqtt).
+          MAC_QT="${MAC_QT_DIR:-/Volumes/HDD/qt/6.5.3/macos}"
+          ssh -F "$SMARTCLIP_SSH_CONFIG" imac "set -eu
+            export PATH=/usr/local/bin:/opt/homebrew/bin:\$PATH
+            test -x $MAC_QT/bin/qmake || { echo 'нет qmake: $MAC_QT'; exit 1; }
+            rm -rf $REMOTE && mkdir -p $REMOTE
+            tar -xzf $REMOTE-src.tar.gz -C $REMOTE
+            cd $REMOTE
+            QT_PATH=$MAC_QT bash scripts/release-macos.sh --jobs 4"
           mkdir -p dist
           for f in "SmartClip-$VERSION-macos-x86_64.zip" "SmartClip-$VERSION-macos-x86_64.dmg"; do
             scp -F "$SMARTCLIP_SSH_CONFIG" -q "imac:$REMOTE/dist/release-$VERSION/$f" dist/ || echo "::warning::$f не забран"
