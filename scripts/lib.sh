@@ -36,5 +36,15 @@ fetch_tool() {
 
 # Запуск AppImage-инструмента даже без FUSE (распаковка во временный каталог).
 run_appimage_tool() {
-    APPIMAGE_EXTRACT_AND_RUN=1 "$@"
+    # Распаковка AppImage-инструмента во ВРЕМЕННЫЙ каталог, который точно
+    # доступен на запись. Без явного TMPDIR appimage-runtime берёт
+    # $HOME/.cache или /tmp, и на CI-раннере с ограниченным HOME это даёт
+    # «could not create symlink / mkdir_p error: Permission denied /
+    # Failed to extract AppImage» (грабля 20.10.2026).
+    local tmp
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/smartclip-appimage.XXXXXX")"
+    APPIMAGE_EXTRACT_AND_RUN=1 TMPDIR="$tmp" "$@"
+    local rc=$?
+    rm -rf "$tmp"
+    return $rc
 }
