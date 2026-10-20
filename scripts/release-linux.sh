@@ -19,12 +19,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 DO_BUILD=1
 JOBS="$(nproc 2>/dev/null || echo 2)"
 REL_VER=""
+QT_DIR="${SMARTCLIP_QT_DIR:-}"
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --skip-build) DO_BUILD=0 ;;
         --jobs) shift; JOBS="${1:?--jobs требует число}" ;;
         --version) shift; REL_VER="${1:?--version требует X.Y.Z}" ;;
+        --qt) shift; QT_DIR="${1:?--qt требует путь}" ;;
         -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
         *) die "неизвестный аргумент: $1" ;;
     esac
@@ -47,8 +49,13 @@ mkdir -p "$REL_DIR"
 BIN="$PROJECT_DIR/build-linux/$APP_NAME"
 if [ "$DO_BUILD" -eq 1 ]; then
     log "Сборка бинарника (Release)…"
-    cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_INSTALL_PREFIX="$HOME/.local" >/dev/null
+    CMAKE_ARGS=( -DCMAKE_BUILD_TYPE=Release
+                 -DCMAKE_INSTALL_PREFIX="$HOME/.local" )
+    if [ -n "$QT_DIR" ]; then
+        log "Qt: $QT_DIR"
+        CMAKE_ARGS+=( -DCMAKE_PREFIX_PATH="$QT_DIR" )
+    fi
+    cmake -S . -B build-linux "${CMAKE_ARGS[@]}" >/dev/null
     cmake --build build-linux --config Release --parallel "$JOBS"
 fi
 [ -f "$BIN" ] || die "нет бинарника $BIN (собери без --skip-build)."
@@ -58,8 +65,9 @@ log "=== Релиз SmartClip $REL_VER → $REL_DIR ==="
 
 # ── 1. AppImage ───────────────────────────────────────────────────────────
 log "[1/3] AppImage…"
-"$SCRIPT_DIR/build-appimage.sh" --skip-build \
-    --out "$REL_DIR/$APP_NAME-$REL_VER-x86_64.AppImage"
+AI_ARGS=( --skip-build --out "$REL_DIR/$APP_NAME-$REL_VER-x86_64.AppImage" )
+[ -n "$QT_DIR" ] && AI_ARGS+=( --qt "$QT_DIR" )
+"$SCRIPT_DIR/build-appimage.sh" "${AI_ARGS[@]}"
 
 # ── 2. .deb ───────────────────────────────────────────────────────────────
 log "[2/3] .deb…"

@@ -18,6 +18,11 @@ ensure_dist() { mkdir -p "$DIST_DIR"; }
 # Каталог для скачиваемых инструментов упаковки (linuxdeploy/appimagetool).
 readonly TOOLS_DIR="${SMARTCLIP_TOOLS_DIR:-$HOME/.cache/smartclip-tools}"
 
+# Префикс Qt, если нужен НЕ системный (например, ~/Qt/6.10.2/gcc_64 с модулем
+# Qt6Mqtt). Должен быть ОДИН на сборку и на упаковку: иначе бинарник собран
+# против одного Qt, а linuxdeploy тянет зависимости из другого (грабля 20.10.2026).
+QT_PREFIX="${SMARTCLIP_QT_DIR:-}"
+
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }

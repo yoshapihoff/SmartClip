@@ -42,6 +42,10 @@ permissions:
 env:
   TAG_PREFIX: v
   APP_NAME: SmartClip
+  # Qt 6.10.2 из Online Installer: В НЁМ есть модуль Qt6Mqtt (в apt-пакетах
+  # Ubuntu qt6-mqtt-dev отсутствует). Префикс обязателен ДЛЯ СБОРКИ И ДЛЯ
+  # linuxdeploy — иначе в AppImage уедет системный Qt без синхронизации.
+  SMARTCLIP_QT_DIR: /home/mario/Qt/6.10.2/gcc_64
 
 jobs:
   linux:
@@ -82,9 +86,18 @@ jobs:
           fi
           echo "uploaded=$UPLOAD" >> "$GITHUB_OUTPUT"
 
-      - name: Build release artifacts (Linux)
+      - name: Build release artifacts (Linux, with MQTT)
         if: ${{ steps.v.outputs.uploaded == 'true' }}
-        run: scripts/release-linux.sh --jobs "$(nproc)"
+        run: |
+          set -euo pipefail
+          QTDIR="${SMARTCLIP_QT_DIR:-}"
+          if [ -n "$QTDIR" ] && [ -x "$QTDIR/bin/qmake6" ]; then
+            echo "Qt с MQTT: $QTDIR"
+            scripts/release-linux.sh --jobs "$(nproc)" --qt "$QTDIR"
+          else
+            echo "::warning::Qt с Qt6Mqtt не найден ($QTDIR) — сборка БЕЗ синхронизации"
+            scripts/release-linux.sh --jobs "$(nproc)"
+          fi
         env:
           SMARTCLIP_TOOLS_DIR: ${{ runner.temp }}/smartclip-tools
 
@@ -137,6 +150,99 @@ jobs:
             case "$code" in 2*) ;; *) echo "::error::не удалось залить $name (HTTP $code)"; exit 1 ;; esac
           done
           echo "релиз $TAG опубликован: https://git.halfpi.ru/mario/smartclip/releases/tag/$TAG"
+
+  # ── Windows и macOS ─────────────────────────────────────────────────────
+  # Собираются на САМИХ машинах (winpc / iMac) через SSH с host-раннера:
+  # кросс-сборка Qt/MinGW и macOS .app на Linux физически невозможна.
+  # Джобы стартуют параллельно с linux и падают, если машины нет в сети —
+  # это осознанно: релиз не должен выходить «половинчатым».
+  windows:
+    name: Windows artifacts (winpc via SSH)
+    runs-on: ubuntu-latest
+    needs: [linux]
+    if: ${{ needs.linux.outputs.uploaded == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare SSH (deploy-ключ из секрета)
+        env:
+          SSH_KEY: ${{ secrets.SSH_DEPLOY_KEY }}
+        run: .forgejo/ci/setup-ssh.sh
+
+      - name: Build on winpc
+        env:
+          VERSION: ${{ needs.linux.outputs.version }}
+        run: |
+          set -euo pipefail
+          SSH_OPTS=(-F "$SMARTCLIP_SSH_CONFIG" -o ConnectTimeout=15 -o BatchMode=yes)
+          ssh "${SSH_OPTS[@]}" winpc 'cmd /c "echo OK"' | grep -q OK \
+            || { echo "::error::winpc недоступен (выключен или не в нужной сети)"; exit 1; }
+          TARBALL="/tmp/smartclip-$VERSION.tar.gz"
+          git archive --format=tar.gz -o "$TARBALL" HEAD
+          scp -F "$SMARTCLIP_SSH_CONFIG" -q "$TARBALL" winpc:C:/Users/mario/smartclip-src.tar.gz
+          scp -F "$SMARTCLIP_SSH_CONFIG" -q .forgejo/ci/win-build.sh winpc:C:/Users/mario/sc-win-build.sh
+          ssh -F "$SMARTCLIP_SSH_CONFIG" winpc 'cmd /c "C:\\msys64\\usr\\bin\\bash.exe /c/Users/mario/sc-win-build.sh 2>&1"'
+          mkdir -p dist
+          scp -F "$SMARTCLIP_SSH_CONFIG" -q "winpc:C:/Users/mario/smartclip-src/dist/release-$VERSION/SmartClip-$VERSION-windows-x86_64.zip" dist/ \
+            || { echo "::error::Windows-артефакт не собран"; exit 1; }
+
+      - name: Publish Windows asset
+        env:
+          VERSION: ${{ needs.linux.outputs.version }}
+          TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: .forgejo/ci/publish-asset.sh dist/SmartClip-$VERSION-windows-x86_64.zip "$VERSION"
+
+  macos:
+    name: macOS artifacts (iMac via SSH)
+    runs-on: ubuntu-latest
+    needs: [linux]
+    if: ${{ needs.linux.outputs.uploaded == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare SSH (deploy-ключ из секрета)
+        env:
+          SSH_KEY: ${{ secrets.SSH_DEPLOY_KEY }}
+        run: .forgejo/ci/setup-ssh.sh
+
+      - name: Build on iMac
+        env:
+          VERSION: ${{ needs.linux.outputs.version }}
+        run: |
+          set -euo pipefail
+          SSH_OPTS=(-F "$SMARTCLIP_SSH_CONFIG" -o ConnectTimeout=15 -o BatchMode=yes)
+          ssh "${SSH_OPTS[@]}" imac 'true' \
+            || { echo "::error::iMac недоступен (выключен или его Wi-Fi не в сети RT-GPON-7A88)"; exit 1; }
+          REMOTE=/tmp/smartclip-release
+          TARBALL="/tmp/smartclip-$VERSION.tar.gz"
+          git archive --format=tar.gz -o "$TARBALL" HEAD
+          scp -F "$SMARTCLIP_SSH_CONFIG" -q "$TARBALL" "imac:$REMOTE-src.tar.gz"
+          ssh -F "$SMARTCLIP_SSH_CONFIG" imac "set -eu; rm -rf $REMOTE && mkdir -p $REMOTE && tar -xzf $REMOTE-src.tar.gz -C $REMOTE && cd $REMOTE && bash scripts/release-macos.sh --jobs 4"
+          mkdir -p dist
+          for f in "SmartClip-$VERSION-macos-x86_64.zip" "SmartClip-$VERSION-macos-x86_64.dmg"; do
+            scp -F "$SMARTCLIP_SSH_CONFIG" -q "imac:$REMOTE/dist/release-$VERSION/$f" dist/ || echo "::warning::$f не забран"
+          done
+          ls -l dist/
+
+      - name: Publish macOS assets
+        env:
+          VERSION: ${{ needs.linux.outputs.version }}
+          TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          found=0
+          for f in dist/SmartClip-$VERSION-macos-*; do
+            .forgejo/ci/publish-asset.sh "$f" "$VERSION"
+            found=1
+          done
+          [ "$found" = 1 ] || { echo "::error::macOS-артефакты не собраны"; exit 1; }
 
       - name: Summary
         run: |
