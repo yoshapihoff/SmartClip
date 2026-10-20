@@ -46,7 +46,7 @@ env:
 jobs:
   linux:
     name: Linux artifacts (build + publish)
-    runs-on: host
+    runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
       uploaded: ${{ steps.v.outputs.uploaded }}
