@@ -19,8 +19,18 @@ fi
 # Ключ из секрета: переводы строк могут прийти с \r, чистим.
 printf '%s\n' "$SSH_KEY" | tr -d '\r' > "$DEST/deploy_key"
 chmod 600 "$DEST/deploy_key"
-ssh-keygen -y -f "$DEST/deploy_key" >/dev/null \
-    || { echo "::error::SSH_DEPLOY_KEY не похож на приватный ключ"; exit 1; }
+
+# Жёсткая проверка, что ключ РЕАЛЬНО лёг на диск и он валидный.
+# Без неё шаг рапортовал «SSH готов», а файла не было — и дальше ssh падал
+# «no such identity» → выглядело как «машина недоступна» (грабля 20.10.2026).
+if [ ! -s "$DEST/deploy_key" ]; then
+    echo "::error::ключ не записался: $DEST/deploy_key пуст (секрет SSH_DEPLOY_KEY?)"
+    exit 1
+fi
+if ! ssh-keygen -y -f "$DEST/deploy_key" >/dev/null 2>&1; then
+    echo "::error::SSH_DEPLOY_KEY не является валидным приватным ключом ($(wc -c < "$DEST/deploy_key") байт)"
+    exit 1
+fi
 
 cat > "$DEST/config" <<EOF
 Host winpc
