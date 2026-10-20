@@ -88,14 +88,8 @@ jobs:
         env:
           SMARTCLIP_TOOLS_DIR: ${{ runner.temp }}/smartclip-tools
 
-      - name: Upload workflow artifacts
-        if: ${{ steps.v.outputs.uploaded == 'true' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: smartclip-linux-${{ steps.v.outputs.version }}
-          path: dist/release-${{ steps.v.outputs.version }}/*
-          if-no-files-found: error
-
+      # upload-artifact НЕ используем: upload-artifact@v4 / @actions/artifact v2
+      # упираются в «GHESNotSupportedError», а публикация идёт напрямую в релиз.
       - name: Publish release to Forgejo
         if: ${{ steps.v.outputs.uploaded == 'true' }}
         env:
