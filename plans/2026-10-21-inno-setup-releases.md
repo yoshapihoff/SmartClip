@@ -60,3 +60,29 @@ workflow ещё не запускался.
   добавить туда winpc-джобу (self-hosted раннер или доступ к winpc из
   GitHub-раннера + секрет), либо публиковать Windows-ассеты из Forgejo-релиза
   отдельным шагом.
+
+
+---
+
+# Дополнение (вторая итерация): где на самом деле терялся установщик в GitHub
+
+Копнул глубже — главная причина **не в CI-скриптах**, а в репозитории:
+
+**В GitHub нет Windows-кода.** `origin/main` = `1ca9bfb` (12.10.2026,
+`VERSION` = 1.1.3), merge-base с нашим main — он же. GitHub отстал на ~20
+коммитов: Windows-порт (`8857cba`), установщик (`3c6bdfe`), `win-build.sh`,
+`installer/`, `icons/SmartClip.ico`, `VERSION.txt` есть только на Forgejo.
+GitHub Actions там собирают только Linux + macOS, поэтому Windows-ассеты
+докладывались руками.
+
+Сделано:
+1. В GitHub-релиз **v1.1.5** добавлен `SmartClip-1.1.5-windows-x86_64-setup.exe`
+   (5.2 МБ) и перевыпущен `SHA256SUMS` (проверено скачиванием).
+2. `.github/workflows/release.yml` — publish тянет Windows-ассеты из релиза
+   Forgejo того же тега. Грабли: Forgejo `/releases/tags/<tag>` → 404 (нужен
+   список + фильтр), репа приватная (без токена API 404) → секрет
+   **`FORGEJO_READ_TOKEN`**.
+3. `tasks/smartclip-publish.py` — GitHub через REST API (на mserver нет `gh`).
+
+Блокеры: PAT без scope `workflow` не пушит workflow-файлы; Windows-код в GitHub
+отсутствует (решение о переносе — за Лёшей).
