@@ -32,12 +32,25 @@ if [ -z "$RELEASE_ID" ]; then
       | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")"
 fi
 
-OLD_ID="$(curl -s -H "Authorization: token $TOKEN" "$API/releases/$RELEASE_ID/assets?name=$NAME" \
-  | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('id','') if isinstance(d,dict) else '')" 2>/dev/null || true)"
-if [ -n "$OLD_ID" ]; then
-    curl -sS -o /dev/null -X DELETE -H "Authorization: token $TOKEN" "$API/releases/$RELEASE_ID/assets/$OLD_ID"
-    echo "удалён прежний ассет $NAME (id=$OLD_ID)"
-fi
+# Грабля 21.10.2026: ?name= в Forgejo НЕ фильтр — отдаёт весь список ассетов
+# (python видел dict -> id всегда пустой, и дубли копились). Скачиваем список
+# и фильтруем по имени сами; удаляем ВСЕ совпадения (лечим и старые дубли).
+OLD_IDS="$(curl -s -H "Authorization: token $TOKEN" "$API/releases/$RELEASE_ID/assets" \
+  | python3 -c "
+import sys, json
+name = sys.argv[1]
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    data = []
+if isinstance(data, dict):
+    data = data.get('assets', [])
+print(' '.join(str(a['id']) for a in data if a.get('name') == name))
+" "$NAME" 2>/dev/null || true)"
+for oid in $OLD_IDS; do
+    curl -sS -o /dev/null -X DELETE -H "Authorization: token $TOKEN" "$API/releases/$RELEASE_ID/assets/$oid"
+    echo "удалён прежний ассет $NAME (id=$oid)"
+done
 
 CODE="$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: token $TOKEN" \
     -F "attachment=@$FILE" "$API/releases/$RELEASE_ID/assets?name=$NAME")"

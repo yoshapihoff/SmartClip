@@ -11,19 +11,28 @@
 ; в автозапуске. Удаление — через «Программы и компоненты».
 ; ─────────────────────────────────────────────────────────────────────────
 
-#ifndef AppVersion
-  #define AppVersion "0.0.0"
+; Корень проекта (LICENSE, icons/, VERSION.txt). Скрипт передаёт его явно,
+; иначе выводим из SourceDir (stage лежит в <project>/build-windows/win-stage/SmartClip).
+#ifndef ProjectDir
+  #define ProjectDir RemoveBackslashUnlessRoot(ExtractFileDir(ExtractFileDir(ExpandConstant(SourceDir))))
 #endif
+
+; Версия: /DAppVersion=x.y.z (так передаёт build-installer-windows.sh) либо
+; из VERSION.txt в корне проекта — чтобы ручной запуск iscc не давал 0.0.0.
+#ifndef AppVersion
+  #define VerFile AddBackslash(ProjectDir) + "VERSION.txt"
+  #if FileExists(VerFile)
+    #define AppVersion Trim(FileRead(FileOpen(VerFile)))
+  #else
+    #define AppVersion "0.0.0"
+  #endif
+#endif
+
 #ifndef SourceDir
   #define SourceDir "..\..\build-windows\win-stage\SmartClip"
 #endif
 #ifndef OutputDir
   #define OutputDir "..\..\dist"
-#endif
-; Корень проекта (LICENSE, icons/). Скрипт передаёт его явно, иначе
-; выводим из SourceDir (stage лежит в <project>/build-windows/win-stage/SmartClip).
-#ifndef ProjectDir
-  #define ProjectDir SourceDir + "\..\.."
 #endif
 
 #define AppName        "SmartClip"

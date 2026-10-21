@@ -5,6 +5,9 @@
 # Почему так: sshd на winpc отдаёт cmd, поэтому нужен именно bash из MSYS2,
 # и PATH приходится собирать руками — иначе не находятся базовые утилиты.
 # Qt кладётся ПЕРЕД MSYS2-минтой: иначе подхватится чужой g++/DLL.
+#
+# С 21.10.2026 собирает И портативный ZIP, И установщик Inno Setup —
+# через единый scripts/build-installer-windows.sh (он сам находит ISCC).
 set -euo pipefail
 
 export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
@@ -24,7 +27,31 @@ cd "$SRC"
 export QT_PATH="$QT_DIR"
 export PATH="/c/Qt/Tools/mingw1310_64/bin:/c/Qt/Tools/CMake/bin:/c/Qt/Tools/Ninja:$PATH"
 
-bash scripts/release-windows.sh --jobs 4
+# OpenSSL 3 для MinGW: CMake его сам не находит (грабля 20.10.2026 и 21.10.2026 —
+# сборка падала «Could NOT find OpenSSL»). Пакет ставится msys2:
+#   C:\msys64\usr\bin\pacman.exe -S --noconfirm mingw-w64-x86_64-openssl
+# ВАЖНО: /c/msys64/mingw64/bin в PATH НЕ добавляем — подхватится чужой g++/DLL,
+# только указываем корень через OPENSSL_ROOT_DIR (--openssl).
+export OPENSSL_ROOT_DIR="${OPENSSL_ROOT_DIR:-C:/msys64/mingw64}"
+echo "== OpenSSL: $OPENSSL_ROOT_DIR =="
+
+# Inno Setup 6 на winpc живёт в профиле пользователя (установка /CURRENTUSER,
+# без UAC). Ищем его здесь явно: в PATH ISCC не попадает.
+if [ -z "${ISCC:-}" ]; then
+    for c in /c/Users/mario/InnoSetup6/ISCC.exe \
+             "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" \
+             "/c/Program Files/Inno Setup 6/ISCC.exe"; do
+        if [ -f "$c" ]; then export ISCC="$c"; break; fi
+    done
+fi
+if [ -n "${ISCC:-}" ]; then
+    echo "== ISCC: $ISCC =="
+else
+    echo "::warning::Inno Setup не найден — соберётся только портативный ZIP" >&2
+fi
+
+# Собирает ZIP + setup.exe (+ SHA256SUMS) в dist/release-<ver>/
+bash scripts/build-installer-windows.sh --jobs 4
 
 echo "== артефакты =="
 ls -l dist/release-*/

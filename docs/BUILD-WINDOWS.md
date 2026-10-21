@@ -159,6 +159,32 @@ scripts/release-windows.sh --qt "C:/Qt/6.11.2/mingw_64" --openssl "C:/dev/openss
 Готовый ZIP самодостаточен: распаковал → запустил `SmartClip.exe`, Qt/OpenSSL
 ставить не нужно.
 
+## 5а. Установщик (Inno Setup 6)
+
+Для «человеческого» апгрейда есть установщик — ставит в `Program Files`,
+делает ярлыки в «Пуск», умеет прописать автозапуск и корректно обновляется
+поверх прошлой версии (тот же `AppId`).
+
+```bash
+# ZIP + setup.exe одним прогоном (ISCC ищется автоматически)
+scripts/build-installer-windows.sh --qt "C:/Qt/6.8.3/mingw_64" --openssl "C:/msys64/mingw64"
+# → dist/release-<версия>/SmartClip-<версия>-windows-x86_64-setup.exe
+#   dist/release-<версия>/SmartClip-<версия>-windows-x86_64.zip
+```
+
+Что нужно один раз поставить на машину сборки:
+
+* **Inno Setup 6** — <https://jrsoftware.org/isdl.php> (бесплатно). Годится и
+  установка «для текущего пользователя» (без UAC): тогда ISCC лежит в
+  `C:\Users\<юзер>\InnoSetup6\ISCC.exe`, скрипт его там находит.
+* **OpenSSL для MinGW**: `C:\msys64\usr\bin\pacman.exe -S --noconfirm mingw-w64-x86_64-openssl`,
+  затем передать `--openssl C:/msys64/mingw64` (или `OPENSSL_ROOT_DIR`).
+  В `PATH` каталог `/c/msys64/mingw64/bin` НЕ добавлять — подхватится чужой g++.
+
+Скрипт установщика — `installer/windows/smartclip.iss`; версия, каталог набора
+и каталог вывода передаются флагами (`//DAppVersion=`, `//DSourceDir=`,
+`//DOutputDir=`, `//DProjectDir=`).
+
 ---
 
 ## 6. Автозапуск, ключ и данные
@@ -203,9 +229,11 @@ cd build-windows && QT_QPA_PLATFORM=offscreen ctest --output-on-failure
 
 | Симптом | Причина / решение |
 |---------|-------------------|
-| `Could NOT find OpenSSL` при configure | не задан `OPENSSL_ROOT_DIR`; передай `--openssl C:/dev/openssl` |
+| `Could NOT find OpenSSL` при configure | не задан `OPENSSL_ROOT_DIR`; передай `--openssl C:/dev/openssl` (либо `C:/msys64/mingw64` после `pacman -S mingw-w64-x86_64-openssl`) |
 | `Qt6Mqtt` не найден | не установлен компонент «Qt MQTT» в Qt Installer |
 | Приложение запускается и сразу падает | рядом нет `libcrypto-3-x64.dll`/`libssl-3-x64.dll` — используй `release-windows.sh` (он их кладёт) |
+| `ISCC: You may not specify more than one script filename` | запуск из MSYS2/Git-Bash: bash съедает `/D...` как POSIX-путь. Передавай переключатели как `//DAppVersion=…` (двойной слэш) |
+| Установщик не появляется в `dist/`, а ISCC «успешно» отработал | проверить, что передан `//DSourceDir=` и каталог набора существует: с пустым `SourceDir` Inno берёт пути от `.iss` |
 | `windeployqt: не найден` | неверный `--qt`; проверь `C:\Qt\6.11.2\mingw_64\bin\windeployqt.exe` |
 | Нет логов в консоли | `-DSMARTCLIP_WINDOWS_CONSOLE=ON` |
 | `mingw32-make: command not found` | MinGW не в `PATH` — открой Qt-ярлык с MinGW из «Пуск» |

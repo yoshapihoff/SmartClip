@@ -148,8 +148,9 @@ if [ "$DO_ZIP" -eq 1 ]; then
         ( cd "$STAGE" && zip -qr "$ZIP" "$APP_NAME" )
     else
         # Фолбэк: powershell Compress-Archive (Git Bash/во многих окружениях).
+        # -LiteralPath: в Path PowerShell трактует [ ] как wildcard.
         powershell.exe -NoProfile -Command \
-            "Compress-Archive -Path '$(cygpath -w "$STAGE/$APP_NAME")' -DestinationPath '$(cygpath -w "$ZIP")' -Force"
+            "Compress-Archive -LiteralPath '$(cygpath -w "$STAGE/$APP_NAME")' -DestinationPath '$(cygpath -w "$ZIP")' -Force"
     fi
     rm -rf "$STAGE"
 else
@@ -157,11 +158,17 @@ else
 fi
 
 # ── Контрольные суммы ─────────────────────────────────────────────────────
-( cd "$REL_DIR" && sha256sum ./* > SHA256SUMS )
+# Сам SHA256SUMS исключаем (см. release-linux.sh, грабля 21.10.2026).
+# xargs без входных данных всё равно запускает sha256sum с пустым аргументом —
+# при `xargs -0 sha256sum` это даёт «sha256sum: './*': No such file» и падение
+# по set -e (грабля 21.10.2026, режим --no-zip). Поэтому -r, а при отсутствии
+# файлов ставим failure guard: сумма просто не создаётся.
+rm -f "$REL_DIR/SHA256SUMS"
+( cd "$REL_DIR" && find . -maxdepth 1 -type f -printf '%f\0' | sort -z \
+    | xargs -0 -r sha256sum > SHA256SUMS.tmp && mv -f SHA256SUMS.tmp SHA256SUMS )
 
 echo
 log "Готовые артефакты:"
 ls -lh "$REL_DIR"
 echo
-echo "Контрольные суммы:"
-cat "$REL_DIR/SHA256SUMS"
+[ -s "$REL_DIR/SHA256SUMS" ] && { echo "Контрольные суммы:"; cat "$REL_DIR/SHA256SUMS"; }

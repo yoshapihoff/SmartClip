@@ -149,7 +149,15 @@ tar -xzf smartclip-src.tar.gz -C smartclip-src
 cd smartclip-src
 export QT_PATH="${QT_PATH:-C:/Qt/6.8.3/mingw_64}"
 export PATH="/c/Qt/Tools/mingw1310_64/bin:/c/Qt/Tools/CMake/bin:/c/Qt/Tools/Ninja:$PATH"
-bash scripts/release-windows.sh --jobs 4
+export QT_PATH="${QT_PATH:-C:/Qt/6.8.3/mingw_64}"
+# Inno Setup 6 лежит в профиле (установка /CURRENTUSER, без UAC).
+if [ -z "${ISCC:-}" ]; then
+    for c in /c/Users/mario/InnoSetup6/ISCC.exe "/c/Program Files (x86)/Inno Setup 6/ISCC.exe"; do
+        [ -f "$c" ] && { export ISCC="$c"; break; }
+    done
+fi
+# Собирает и ZIP, и setup.exe (Inno Setup).
+bash scripts/build-installer-windows.sh --jobs 4
 ls -l dist/release-*/
 WINEOF
     scp -q /tmp/sc-win-build.sh "$HOST_WIN:C:/Users/mario/sc-win-build.sh"
@@ -157,9 +165,11 @@ WINEOF
         || die "сборка Windows упала (см. вывод выше)"
 
     log "[2] Windows: забираю артефакты…"
-    WIN_ZIP="SmartClip-$REL_VER-windows-x86_64.zip"
-    scp -q "$HOST_WIN:C:/Users/mario/smartclip-src/dist/release-$REL_VER/$WIN_ZIP" "$REL_DIR/" \
-        || warn "не забрал $WIN_ZIP — проверь вывод сборки выше"
+    for f in "SmartClip-$REL_VER-windows-x86_64.zip" \
+             "SmartClip-$REL_VER-windows-x86_64-setup.exe"; do
+        scp -q "$HOST_WIN:C:/Users/mario/smartclip-src/dist/release-$REL_VER/$f" "$REL_DIR/" \
+            || warn "не забрал $f — проверь вывод сборки выше"
+    done
 else
     warn "[2] Windows пропущен"
 fi
@@ -193,7 +203,8 @@ shopt -s nullglob
 ASSETS=("$REL_DIR"/*)
 [ ${#ASSETS[@]} -gt 0 ] || die "в $REL_DIR пусто — нечего публиковать"
 rm -f "$REL_DIR/SHA256SUMS"
-( cd "$REL_DIR" && sha256sum ./* > SHA256SUMS )
+( cd "$REL_DIR" && find . -maxdepth 1 -type f ! -name 'SHA256SUMS' -printf '%f\0' \
+    | sort -z | xargs -0 sha256sum > SHA256SUMS )
 
 echo
 log "Готовые артефакты:"

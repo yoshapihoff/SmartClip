@@ -99,7 +99,12 @@ if [ "$DO_DMG" -eq 1 ]; then
     fi
 fi
 
-( cd "$REL_DIR" && shasum -a 256 ./* > SHA256SUMS )
+# Сам SHA256SUMS исключаем (см. release-linux.sh, грабля 21.10.2026).
+# BSD find не умеет -printf — берём список файлов через ls, а не glob.
+rm -f "$REL_DIR/SHA256SUMS"
+( cd "$REL_DIR" && ls -1 | grep -v '^SHA256SUMS$' | while IFS= read -r f; do
+    [ -f "$f" ] && shasum -a 256 "$f"
+  done > SHA256SUMS )
 
 echo
 log "Готовые артефакты:"

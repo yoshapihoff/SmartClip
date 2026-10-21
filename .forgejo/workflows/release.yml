@@ -129,19 +129,23 @@ jobs:
             echo "создан релиз $TAG (id=$RELEASE_ID)"
           fi
 
-          # 2. Залить ассеты (идемпотентно: прежний ассет с тем же именем удаляем).
+          # 2. Залить ассеты (идемпотентно: прежние ассеты с тем же именем удаляем).
+          # Грабля 21.10.2026: ?name= в Forgejo НЕ фильтр — отдаёт весь список,
+          # поэтому фильтруем по имени сами (python-однострочником, без heredoc —
+          # многострочный python внутри YAML ломает парсер).
           shopt -s nullglob
           for f in "$DIR"/*; do
             [ -f "$f" ] || continue
             name="$(basename "$f")"
-            OLD_ID="$(curl -s -H "Authorization: token $TOKEN" \
-                "$API/$RELEASE_ID/assets?name=$name" \
-              | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('id','') if isinstance(d,dict) else '')" 2>/dev/null || true)"
-            if [ -n "$OLD_ID" ]; then
+            # ?name= в Forgejo не фильтр — фильтруем по имени python-однострочником.
+            OLD_IDS="$(curl -s -H "Authorization: token $TOKEN" \
+                "$API/$RELEASE_ID/assets" \
+              | python3 -c 'import sys,json; d=json.load(sys.stdin); d=d.get("assets",[]) if isinstance(d,dict) else []; print(" ".join(str(a["id"]) for a in d if a.get("name")==sys.argv[1]))' "$name" 2>/dev/null || true)"
+            for oid in $OLD_IDS; do
               curl -sS -o /dev/null -X DELETE -H "Authorization: token $TOKEN" \
-                "$API/$RELEASE_ID/assets/$OLD_ID"
-              echo "удалён прежний ассет $name (id=$OLD_ID)"
-            fi
+                "$API/$RELEASE_ID/assets/$oid"
+              echo "удалён прежний ассет $name (id=$oid)"
+            done
             code="$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: token $TOKEN" \
                 -F "attachment=@$f" "$API/$RELEASE_ID/assets?name=$name")"
             echo "asset $name: HTTP $code"
@@ -186,14 +190,29 @@ jobs:
           scp -F "$SMARTCLIP_SSH_CONFIG" -q .forgejo/ci/win-build.sh winpc:C:/Users/mario/sc-win-build.sh
           ssh -F "$SMARTCLIP_SSH_CONFIG" winpc 'cmd /c "C:\\msys64\\usr\\bin\\bash.exe /c/Users/mario/sc-win-build.sh 2>&1"'
           mkdir -p dist
-          scp -F "$SMARTCLIP_SSH_CONFIG" -q "winpc:C:/Users/mario/smartclip-src/dist/release-$VERSION/SmartClip-$VERSION-windows-x86_64.zip" dist/ \
+          # ZIP собираем всегда (портативная версия), setup.exe — если на winpc
+          # есть Inno Setup. Отсутствие установщика НЕ роняет джобу, но пишется
+          # предупреждением в лог, чтобы это не осталось незамеченным.
+          REMOTE_DIR="winpc:C:/Users/mario/smartclip-src/dist/release-$VERSION"
+          scp -F "$SMARTCLIP_SSH_CONFIG" -q "$REMOTE_DIR/SmartClip-$VERSION-windows-x86_64.zip" dist/ \
             || { echo "::error::Windows-артефакт не собран"; exit 1; }
+          scp -F "$SMARTCLIP_SSH_CONFIG" -q "$REMOTE_DIR/SmartClip-$VERSION-windows-x86_64-setup.exe" dist/ \
+            || echo "::warning::установщик Inno Setup не собран (нет ISCC на winpc?) — в релизе будет только ZIP"
+          ls -l dist/
 
-      - name: Publish Windows asset
+      - name: Publish Windows assets
         env:
           VERSION: ${{ needs.linux.outputs.version }}
           TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        run: .forgejo/ci/publish-asset.sh dist/SmartClip-$VERSION-windows-x86_64.zip "$VERSION"
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          found=0
+          for f in dist/SmartClip-$VERSION-windows-*; do
+            .forgejo/ci/publish-asset.sh "$f" "$VERSION"
+            found=1
+          done
+          [ "$found" = 1 ] || { echo "::error::Windows-артефакты не собраны"; exit 1; }
 
   macos:
     name: macOS artifacts (iMac via SSH)
