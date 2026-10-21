@@ -12,9 +12,13 @@
 # Использование:
 #   scripts/package-deb.sh [--version X.Y.Z] [--binary PATH] [--out FILE]
 #
-# Важно: пакет содержит бинарник, слинкованный с системным Qt6 (см. build-linux.sh).
-# Для «дистрибутивного» .deb его лучше собирать на Debian/Ubuntu (или в CI-образе
-# с системным Qt6). Здесь же — удобный рабочий пакет под текущий стек.
+# ВАЖНО (грабля 21.10.2026): до этой правки в .deb уезжал бинарник с RUNPATH
+# /opt/qt-6.10.2/gcc_64/lib — путь машины сборки. На любой другой системе
+# пакет не запускался: «error while loading shared libraries: libQt6Widgets.so.6».
+# Depends при этом тянул системный libqt6mqtt6, которого в Ubuntu/Debian НЕТ
+# (пакет есть только в KDE-neon/Arch), т.е. apt вообще не мог его поставить.
+# Теперь пакет самодостаточен: Qt/OpenSSL кладутся внутрь /opt/smartclip/lib,
+# а у бинарника RUNPATH = $ORIGIN/../lib.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
@@ -59,7 +63,13 @@ mkdir -p "$(dirname "$OUT")"
 # ── Зависимости пакета ────────────────────────────────────────────────────
 # Альтернативы через «|» покрывают разные схемы имён (Debian 12 vs Ubuntu 24.04+,
 # где появились t64-пакеты). Переопределяется переменной SMARTCLIP_DEB_DEPENDS.
-DEB_DEPENDS="${SMARTCLIP_DEB_DEPENDS:-libc6, libstdc++6, libssl3 | libssl3t64, libqt6core6 | libqt6core6t64, libqt6gui6, libqt6widgets6, libqt6svg6, libqt6network6, libqt6dbus6, libqt6mqtt6}"
+# Qt и OpenSSL теперь ВНУТРИ пакета (см. блок «Бандл зависимостей»), поэтому
+# зависимости по Qt из Depends убраны: их не было в стандартных репозиториях
+# (libqt6mqtt6 отсутствует в Ubuntu/Debian → apt не мог поставить пакет).
+DEB_DEPENDS="${SMARTCLIP_DEB_DEPENDS:-libc6, libstdc++6, libxkbcommon0, libxkbcommon-x11-0, libglib2.0-0t64 | libglib2.0-0, libfontconfig1, libfreetype6, libgl1, libegl1, libx11-6, libx11-xcb1, libice6, libsm6, libxcb-cursor0, libxcb-icccm4, libxcb-image0, libxcb-keysyms1, libxcb-randr0, libxcb-render-util0, libxcb-shape0, libxcb-sync1, libxcb-xfixes0, libxcb-xinerama0, libxcb-xkb1, libdbus-1-3, libzstd1, libbrotli1, libb2-1}"
+
+readonly LIBDIR="/opt/smartclip/lib"
+readonly PLUGINDIR="/opt/smartclip/plugins"
 
 # ── Каркас пакета ─────────────────────────────────────────────────────────
 STAGE="$BUILD_DIR/deb-stage"
@@ -67,11 +77,76 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE/DEBIAN" \
          "$STAGE/usr/bin" \
          "$STAGE/usr/share/applications" \
-         "$STAGE/usr/share/icons/hicolor/512x512/apps"
+         "$STAGE/usr/share/icons/hicolor/512x512/apps" \
+         "$STAGE$LIBDIR" \
+         "$STAGE$PLUGINDIR/platforms" \
+         "$STAGE$PLUGINDIR/imageformats" \
+         "$STAGE$PLUGINDIR/iconengines"
 
 cp "$BINARY" "$STAGE/usr/bin/$APP_NAME"
 strip --strip-unneeded "$STAGE/usr/bin/$APP_NAME" 2>/dev/null || true
 chmod 0755 "$STAGE/usr/bin/$APP_NAME"
+
+# ── Бандл зависимостей ────────────────────────────────────────────────────
+# Копируем Qt-библиотеки (по ldd + рекурсивно их собственные зависимости) и
+# нужные плагины внутрь пакета, затем правим RUNPATH бинарника на
+# $ORIGIN/../lib. Требует patchelf; без него — предупреждение, но пакет
+# всё равно соберётся (и упадёт на чужой машине — поэтому лучше fatal).
+if command -v patchelf >/dev/null 2>&1; then
+    # Системные библиотеки, которые НЕ надо класть в пакет (glibc, драйверы).
+    SKIP_RE='^(libc\.so|libm\.so|libdl\.so|libpthread\.so|libresolv\.so|libnsl\.so|ld-linux|libGLX|libGL\.so|libEGL\.so|libOpenGL|libGLdispatch|libdrm|libgcc_s|libstdc\+\+|libmvec)'
+
+    copy_deps() {
+        local target="$1" depth="${2:-0}"
+        [ "$depth" -gt 3 ] && return 0
+        while read -r line; do
+            local path
+            path="$(printf '%s' "$line" | awk '{ if ($2=="=>") print $3; else print $1 }')"
+            case "$path" in
+                /*) ;;
+                *) continue ;;   # linux-vdso, ld-linux и прочее «не файлы»
+            esac
+            [ -f "$path" ] || continue
+            local base
+            base="$(basename "$path")"
+            printf '%s' "$base" | grep -qE "$SKIP_RE" && continue
+            [ -f "$STAGE$LIBDIR/$base" ] && continue
+            cp -L "$path" "$STAGE$LIBDIR/$base"
+            copy_deps "$path" $((depth + 1))
+        done < <(ldd "$target" 2>/dev/null)
+    }
+    copy_deps "$BINARY"
+
+    # Плагины: xcb (запуск в сессии), imageformats/iconengines (иконки трея).
+    QT_PLUGINS_SRC=""
+    for cand in "${QT_DIR:-}/plugins" /opt/qt-6.10.2/gcc_64/plugins \
+                /usr/lib/x86_64-linux-gnu/qt6/plugins; do
+        [ -d "$cand" ] && { QT_PLUGINS_SRC="$cand"; break; }
+    done
+    if [ -n "$QT_PLUGINS_SRC" ]; then
+        for sub in platforms imageformats iconengines; do
+            [ -d "$QT_PLUGINS_SRC/$sub" ] || continue
+            find "$QT_PLUGINS_SRC/$sub" -maxdepth 1 -name '*.so' -print0 \
+                | while IFS= read -r -d '' pl; do
+                    cp -L "$pl" "$STAGE$PLUGINDIR/$sub/"
+                    copy_deps "$pl"
+                done
+        done
+    else
+        warn "каталог Qt-плагинов не найден — в .deb не будет platforms/libqxcb.so"
+    fi
+
+    # $ORIGIN — это /usr/bin, а библиотеки лежат в /opt/smartclip/lib,
+    # поэтому путь ОТНОСИТЕЛЬНО $ORIGIN выглядит так (грабля 21.10.2026:
+    # «$ORIGIN/../lib» указывал в /usr/lib и Qt не находился).
+    patchelf --set-rpath '$ORIGIN/../../opt/smartclip/lib:/opt/smartclip/lib' \
+        "$STAGE/usr/bin/$APP_NAME"
+    QT_CONF="$STAGE$PLUGINDIR/qt.conf"
+    printf '[Paths]\nPrefix=/opt/smartclip\nPlugins=plugins\n' > "$QT_CONF"
+    log "Зависимости упакованы в $LIBDIR ($(ls "$STAGE$LIBDIR" | wc -l) файлов)"
+else
+    die "patchelf не найден — .deb будет слинкован с Qt машины сборки и не запустится в другом месте (pacman -S patchelf / apt install patchelf)."
+fi
 
 cp "$PROJECT_DIR/assets/smartclip.desktop" "$STAGE/usr/share/applications/"
 cp "$PROJECT_DIR/icons/icon.png" "$STAGE/usr/share/icons/hicolor/512x512/apps/smartclip.png"
