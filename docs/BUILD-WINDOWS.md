@@ -237,3 +237,17 @@ cd build-windows && QT_QPA_PLATFORM=offscreen ctest --output-on-failure
 | `windeployqt: не найден` | неверный `--qt`; проверь `C:\Qt\6.11.2\mingw_64\bin\windeployqt.exe` |
 | Нет логов в консоли | `-DSMARTCLIP_WINDOWS_CONSOLE=ON` |
 | `mingw32-make: command not found` | MinGW не в `PATH` — открой Qt-ярлык с MinGW из «Пуск» |
+
+## Если установщика нет в релизе (доливка вручную)
+
+21.10.2026: `setup.exe` собрался на winpc, но в релиз Forgejo не попал —
+workflow не перезапускался после фикса `win-build.sh`. Доливка одной командой
+(собирает на winpc, если нужно, тянет оба Windows-файла, пересобирает
+SHA256SUMS и публикует):
+
+```bash
+python3 ~/.openclaw/workspace/tasks/smartclip-attach-windows.py            # с пересборкой
+python3 ~/.openclaw/workspace/tasks/smartclip-attach-windows.py --no-build # взять готовое с winpc
+```
+
+Скрипт идемпотентен: `publish-asset.sh` удаляет прежний ассет с тем же именем.
