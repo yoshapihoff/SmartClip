@@ -7,6 +7,12 @@ name: release
 # Запуск: Actions → workflow "release" → "Run workflow" (workflow_dispatch).
 # Тогда собираются Linux- и macOS-артефакты из текущего main.
 #
+# WINDOWS ЗДЕСЬ НЕ СОБИРАЕТСЯ — и это причина, по которой в релизах на GitHub
+# до 21.10.2026 лежал только портативный zip: .exe/установщик собираются на
+# машине winpc (Qt 6.8.3 MinGW + Inno Setup), а в GitHub-репозитории нет
+# Windows-кода и нет доступа к этой машине (решение Лёши 21.10.2026:
+# Windows-артефакты публикуются из релиза Forgejo, см. ниже в publish).
+#
 # Политика по macOS (решение Лёши 07.10.2026): macOS-артефакты в релиз
 # АВТОМАТИЧЕСКИ не публикуются. macOS (.app/.zip/.dmg) Лёша добавляет к релизу
 # ВРУЧНУЮ. Собрать macOS-комплект локально на маке: scripts/release-macos.sh.
@@ -163,6 +169,40 @@ jobs:
               gh release create "$TAG" --title "SmartClip $VERSION" \
                 --notes "Релиз SmartClip $VERSION (автосборка CI). Артефакты: Linux (AppImage/deb/tar.gz), macOS (.app со вложенными зависимостями)."
             gh release upload "$TAG" artifacts/* --clobber
+
+            # ── Windows-артефакты: забираем из релиза Forgejo ──────────────
+            # Сборка .exe/установщика идёт на winpc (Qt MinGW + Inno Setup) и
+            # возможна только в Forgejo-пайплайне (<репозиторий>/.forgejo/
+            # workflows/release.yml): в этом репозитории нет Windows-кода и нет
+            # доступа к winpc. Поэтому Windows-ассеты (zip + setup.exe)
+            # копируются из Forgejo — иначе в GitHub-релизе их просто нет
+            # (грабля 21.10.2026: был только zip без установщика).
+            # Forgejo: /releases/tags/<tag> отдаёт 404 (проверено 21.10.2026) —
+            # нужен ?tag=<tag> / /releases?limit=50, поэтому фильтруем по tag_name.
+            FJ_API="https://git.halfpi.ru/api/v1/repos/mario/smartclip/releases"
+            FJ_JSON="$RUNNER_TEMP/fj-release.json"
+            FJ_URLS="$RUNNER_TEMP/fj-urls.txt"
+            # Репа на Forgejo приватная: без токена API отдаёт 404 (проверено
+            # 21.10.2026). Токен — секрет репозитория FORGEJO_READ_TOKEN
+            # (достаточно read:repository). Нет токена — шаг не валим, просто
+            # предупреждаем, что Windows-ассетов в GitHub-релизе не будет.
+            FJ_TOKEN="${{ secrets.FORGEJO_READ_TOKEN }}"
+            FJ_AUTH=()
+            [ -n "$FJ_TOKEN" ] && FJ_AUTH=(-H "Authorization: token $FJ_TOKEN")
+            if curl -sSf -m 20 "${FJ_AUTH[@]}" "$FJ_API?limit=50" -o "$FJ_JSON" 2>/dev/null; then
+              python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); r=[x for x in d if x.get("tag_name")==sys.argv[3]]; u=[a["browser_download_url"] for x in r for a in x.get("assets",[]) if "windows" in a.get("name","")]; open(sys.argv[2],"w").write("".join(x+"\n" for x in u))' "$FJ_JSON" "$FJ_URLS" "$TAG"
+              if [ -s "$FJ_URLS" ]; then
+                # Ассеты приватного релиза тоже требуют токен.
+                ( cd "$RUNNER_TEMP" && xargs -n1 -P4 curl -sSfL -m 300 -H "Authorization: token $FJ_TOKEN" -O < "$FJ_URLS" )
+                echo "Forgejo -> GitHub: добавляю Windows-ассеты:"
+                ls -l "$RUNNER_TEMP"/SmartClip-*-windows-*
+                gh release upload "$TAG" "$RUNNER_TEMP"/SmartClip-*-windows-* --clobber
+              else
+                echo "::warning::в релизе Forgejo $TAG нет Windows-ассетов — в GitHub они не попадут"
+              fi
+            else
+              echo "::warning::релиз $TAG не найден на Forgejo — Windows-ассеты пропущены"
+            fi
           ) 2>&1 | tee "$RUNNER_TEMP/publish.log"
           st=${PIPESTATUS[0]}
           if [ "$st" -ne 0 ]; then
