@@ -96,6 +96,14 @@ void HelpDialog::setupUI()
     );
     favX11->setWordWrap(true);
     mainLayout->addWidget(favX11);
+#elif defined(Q_OS_WIN)
+    QLabel *favWin = new QLabel(
+        "On Windows you can also hold <b>Ctrl</b> and <b>left-click</b> an item to "
+        "toggle its favorite state in one go, without entering the mode.",
+        this
+    );
+    favWin->setWordWrap(true);
+    mainLayout->addWidget(favWin);
 #endif
 
     // --- 2. Вскрытие / сокрытие паролей ---
@@ -123,6 +131,14 @@ void HelpDialog::setupUI()
     );
     revealMac->setWordWrap(true);
     mainLayout->addWidget(revealMac);
+#elif defined(Q_OS_WIN)
+    QLabel *revealWin = new QLabel(
+        "On Windows you can also hold <b>Shift</b> and <b>left-click</b> an item to "
+        "toggle its masked state without entering the mode.",
+        this
+    );
+    revealWin->setWordWrap(true);
+    mainLayout->addWidget(revealWin);
 #endif
 
     // --- 3. Комментарии ---
@@ -202,6 +218,8 @@ void HelpDialog::setupUI()
         "(macOS Keychain)"
 #elif defined(Q_OS_LINUX)
         "(Secret Service / GNOME Keyring)"
+#elif defined(Q_OS_WIN)
+        "(Windows Credential Manager)"
 #else
         "(system key store)"
 #endif

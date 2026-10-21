@@ -34,7 +34,7 @@ done
 cd "$PROJECT_DIR"
 
 if [ -z "$REL_VER" ]; then
-    REL_VER="$(tr -d '[:space:]' < "$PROJECT_DIR/VERSION")"
+    REL_VER="$(tr -d '[:space:]' < "$PROJECT_DIR/VERSION.txt")"
 fi
 [[ "$REL_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "некорректная версия: '$REL_VER'"
 
@@ -61,9 +61,12 @@ while IFS= read -r f; do
     # Внешняя зависимость = абсолютный путь ВНЕ бандла и вне /usr/lib,
     # /System (Homebrew/opt, /usr/local, /Volumes/Qt/…). Ссылки на файлы
     # ВНУТРИ .app допустимы — sanitize переводит их в @rpath.
+    # Ссылки на файлы ВНУТРИ .app допустимы — но otool отдаёт там РЕАЛЬНЫЙ путь
+    # (канонический, без …/…/build-macos/../../), поэтому сравниваем и с
+    # `pwd -P`-версией пути к бандлу, а не только с «как передали в аргументе».
     ext="$(otool -L "$f" 2>/dev/null | tail -n +2 | awk '{print $1}' \
            | grep -E '^/' | grep -vE '^/usr/lib/|^/System/' \
-           | grep -vF "$APP/" || true)"
+           | grep -vF "$APP/" | grep -vF "$(cd "$APP" && pwd -P)/" || true)"
     if [ -n "$ext" ]; then
         warn "$(basename "$f") ссылается на внешние пути:"; echo "$ext" | sed 's/^/    /' >&2
         bad=1
@@ -96,7 +99,12 @@ if [ "$DO_DMG" -eq 1 ]; then
     fi
 fi
 
-( cd "$REL_DIR" && shasum -a 256 ./* > SHA256SUMS )
+# Сам SHA256SUMS исключаем (см. release-linux.sh, грабля 21.10.2026).
+# BSD find не умеет -printf — берём список файлов через ls, а не glob.
+rm -f "$REL_DIR/SHA256SUMS"
+( cd "$REL_DIR" && ls -1 | grep -v '^SHA256SUMS$' | while IFS= read -r f; do
+    [ -f "$f" ] && shasum -a 256 "$f"
+  done > SHA256SUMS )
 
 echo
 log "Готовые артефакты:"

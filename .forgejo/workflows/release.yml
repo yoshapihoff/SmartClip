@@ -1,95 +1,284 @@
 name: release
 
-# Сборка релизных артефактов SmartClip при обновлении версии (push в main).
+# Сборка релизных артефактов SmartClip на self-hosted раннере Forgejo (mserver).
 #
-# Версия берётся из файла VERSION (который авто-бампается pre-commit-хуком на
-# каждый коммит), поэтому каждый push в main приносит новую версию → новый релиз.
-# Артефакты прикрепляются к релизу с тегом v<version> в Forgejo.
+# ВАЖНО про окружение: раннер — HOST-раннер (не docker), работает под
+# пользователем `runner` без sudo. Поэтому:
+#   • шага "apt-get install" здесь НЕТ и быть не должно — он ронял джобу на
+#     первой же строке ("sudo: I'm sorry runner. I'm afraid I can't do that");
+#   • все зависимости сборки заранее стоят на хосте (см. docs/BUILD-LINUX.md).
+# Всё, что нужно для Linux-сборки: cmake, ninja/make, g++, pkg-config,
+# libssl-dev, qt6-base-dev, qt6-svg-dev, libxkbcommon-dev, libgl-dev.
+# Qt6::Mqtt в репозиториях Ubuntu отсутствует — сборка идёт БЕЗ сетевой
+# синхронизации (CMake честно пишет warning, синк просто выключен в UI).
 #
-# Раннер: Linux (self-hosted Forgejo Actions). Здесь собираются только Linux-
-# артефакты. macOS-сборка (в GitHub Actions) запускается ТОЛЬКО вручную
-# (workflow_dispatch) и автоматически в релиз не публикуется — Лёша добавляет
-# macOS-артефакты вручную (решение 07.10.2026).
+# Триггеры:
+#   • push в main — релиз собирается и публикуется автоматически, но только
+#     если версия из VERSION.txt ещё не имеет тега v<version> (либо тег есть,
+#     но версия пересобрана заново). Иначе сборочные шаги пропускаются, чтобы
+#     не гонять релиз на каждый мелкий коммит;
+#   • workflow_dispatch — принудительная пересборка и перезаливка ассетов.
+#
+# Платформы: здесь — только Linux (AppImage/deb/tar.gz) — единственное, что
+# физически собирается на этом раннере. Windows и macOS собираются отдельно
+# (winpc по SSH / iMac) и доливаются в тот же релиз скриптом
+# scripts/release-all.sh (решение 20.10.2026).
+#
+# Версия берётся из VERSION.txt (авто-бамп patch через .githooks/pre-commit),
+# тег релиза — v<version>. Публикация в релиз Forgejo — через API с токеном
+# из секрета репозитория RELEASE_TOKEN.
 
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 env:
-  GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+  TAG_PREFIX: v
+  APP_NAME: SmartClip
+  # Qt 6.10.2 из Online Installer: В НЁМ есть модуль Qt6Mqtt (в apt-пакетах
+  # Ubuntu qt6-mqtt-dev отсутствует). Префикс обязателен ДЛЯ СБОРКИ И ДЛЯ
+  # linuxdeploy — иначе в AppImage уедет системный Qt без синхронизации.
+  SMARTCLIP_QT_DIR: /opt/qt-6.10.2/gcc_64
 
 jobs:
   linux:
+    name: Linux artifacts (build + publish)
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      uploaded: ${{ steps.v.outputs.uploaded }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Install build dependencies (Qt6 + OpenSSL)
-        run: |
-          set -eux
-          sudo apt-get update
-          # Базовые (обязательные): Qt6 Widgets/Svg/Network/DBus + OpenSSL.
-          sudo apt-get install -y --no-install-recommends \
-              cmake ninja-build g++ pkg-config \
-              libssl-dev \
-              qt6-base-dev qt6-svg-dev \
-              libgl1-mesa-dev libxkbcommon-dev
-          # MQTT — опционален (синк можно выключить). Если пакета нет, сборка
-          # всё равно пройдёт: CMake выдаст WARNING и соберёт без синка.
-          sudo apt-get install -y --no-install-recommends qt6-mqtt-dev || \
-              echo "Qt6 MQTT недоступен — собираю без сетевой синхронизации"
-
-      - name: Read version
+      - name: Read version + decide whether to publish
         id: v
-        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '[:space:]' < VERSION.txt)"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::некорректная версия в VERSION.txt: '$VERSION'"; exit 1; }
+          TAG="${TAG_PREFIX}${VERSION}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Build release artifacts
-        run: scripts/release-linux.sh --jobs "$(nproc)"
+          # Публикуем, если: запуск ручной, ИЛИ тега v<version> ещё нет
+          # (т.е. пришёл коммит с новой версией), ИЛИ тег указывает не на этот коммит.
+          UPLOAD=false
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            UPLOAD=true
+          elif ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "тега $TAG нет — это новая версия, публикуем"
+            UPLOAD=true
+          elif [ "$(git rev-list -n1 "$TAG")" != "$GITHUB_SHA" ]; then
+            echo "тег $TAG есть, но архив изменился — публикуем (перезаливка ассетов)"
+            UPLOAD=true
+          else
+            echo "версия $VERSION уже опубликована — сборочные шаги пропускаются"
+          fi
+          echo "uploaded=$UPLOAD" >> "$GITHUB_OUTPUT"
+
+      - name: Build release artifacts (Linux, with MQTT)
+        if: ${{ steps.v.outputs.uploaded == 'true' }}
+        run: |
+          set -euo pipefail
+          QTDIR="${SMARTCLIP_QT_DIR:-}"
+          [ -n "$QTDIR" ] || { echo "::error::SMARTCLIP_QT_DIR не задан — релиз должен быть с MQTT"; exit 1; }
+          [ -x "$QTDIR/bin/qmake6" ] || { echo "::error::нет $QTDIR/bin/qmake6 (Qt должен быть доступен раннеру)"; exit 1; }
+          [ -f "$QTDIR/lib/cmake/Qt6Mqtt/Qt6MqttConfig.cmake" ] || { echo "::error::в $QTDIR нет модуля Qt6Mqtt"; exit 1; }
+          echo "Qt с MQTT: $QTDIR"
+          scripts/release-linux.sh --jobs "$(nproc)" --qt "$QTDIR"
         env:
           SMARTCLIP_TOOLS_DIR: ${{ runner.temp }}/smartclip-tools
 
-      - name: Upload artifacts (workflow)
-        uses: actions/upload-artifact@v4
-        with:
-          name: smartclip-linux-${{ steps.v.outputs.version }}
-          path: dist/release-${{ steps.v.outputs.version }}/*
-          if-no-files-found: error
-
+      # upload-artifact НЕ используем: upload-artifact@v4 / @actions/artifact v2
+      # упираются в «GHESNotSupportedError», а публикация идёт напрямую в релиз.
       - name: Publish release to Forgejo
+        if: ${{ steps.v.outputs.uploaded == 'true' }}
         env:
           VERSION: ${{ steps.v.outputs.version }}
+          TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           set -euo pipefail
-          TAG="v$VERSION"
+          [ -n "${TOKEN:-}" ] || { echo "::error::секрет RELEASE_TOKEN не задан"; exit 1; }
+          TAG="${TAG_PREFIX}${VERSION}"
           API="https://git.halfpi.ru/api/v1/repos/mario/smartclip/releases"
           DIR="dist/release-$VERSION"
+          [ -d "$DIR" ] || { echo "::error::нет каталога $DIR"; exit 1; }
 
-          EXISTING=$(curl -s -H "Authorization: token $GH_TOKEN" \
-            "https://git.halfpi.ru/api/v1/repos/mario/smartclip/releases/tags/$TAG" \
-            | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('id',''))" 2>/dev/null || echo "")
+          # 1. Найти существующий релиз или создать новый.
+          RELEASE_ID="$(curl -sSf -H "Authorization: token $TOKEN" \
+              "$API/tags/$TAG" \
+            | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)"
 
-          if [ -n "$EXISTING" ]; then
-            RELEASE_ID="$EXISTING"
+          if [ -n "$RELEASE_ID" ]; then
             echo "релиз $TAG уже есть (id=$RELEASE_ID) — обновляю ассеты"
           else
-            RELEASE_ID=$(curl -s -H "Authorization: token $GH_TOKEN" -H "Content-Type: application/json" \
-              -X POST "$API" \
-              -d "{\"tag_name\":\"$TAG\",\"name\":\"SmartClip $VERSION\",\"body\":\"Релиз SmartClip $VERSION. Собрано из main ($GITHUB_SHA).\",\"draft\":false,\"prerelease\":false,\"target_commitish\":\"main\"}" \
-              | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['id'])")
+            RELEASE_ID="$(curl -sSf -H "Authorization: token $TOKEN" \
+                -H 'Content-Type: application/json' -X POST "$API" \
+                -d "{\"tag_name\":\"$TAG\",\"name\":\"SmartClip $VERSION\",\"body\":\"Сборка SmartClip $VERSION (Linux, CI). Windows и macOS доливаются отдельно.\",\"draft\":false,\"prerelease\":false,\"target_commitish\":\"$GITHUB_SHA\"}" \
+              | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")"
             echo "создан релиз $TAG (id=$RELEASE_ID)"
           fi
 
+          # 2. Залить ассеты (идемпотентно: прежние ассеты с тем же именем удаляем).
+          # Грабля 21.10.2026: ?name= в Forgejo НЕ фильтр — отдаёт весь список,
+          # поэтому фильтруем по имени сами (python-однострочником, без heredoc —
+          # многострочный python внутри YAML ломает парсер).
+          shopt -s nullglob
           for f in "$DIR"/*; do
+            [ -f "$f" ] || continue
             name="$(basename "$f")"
-            # Удаляем прежний ассет с тем же именем (идемпотентность).
-            curl -s -H "Authorization: token $GH_TOKEN" "$API/$RELEASE_ID/assets?name=$name" \
-              | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))" 2>/dev/null \
-              | while read -r aid; do [ -n "$aid" ] && curl -s -X DELETE -H "Authorization: token $GH_TOKEN" "$API/$RELEASE_ID/assets/$aid" >/dev/null; done || true
-            curl -s -o /dev/null -w "asset $name: HTTP %{http_code}\n" \
-              -H "Authorization: token $GH_TOKEN" \
-              -F "attachment=@$f" "$API/$RELEASE_ID/assets?name=$name"
+            # ?name= в Forgejo не фильтр — фильтруем по имени python-однострочником.
+            OLD_IDS="$(curl -s -H "Authorization: token $TOKEN" \
+                "$API/$RELEASE_ID/assets" \
+              | python3 -c 'import sys,json; d=json.load(sys.stdin); d=d.get("assets",[]) if isinstance(d,dict) else []; print(" ".join(str(a["id"]) for a in d if a.get("name")==sys.argv[1]))' "$name" 2>/dev/null || true)"
+            for oid in $OLD_IDS; do
+              curl -sS -o /dev/null -X DELETE -H "Authorization: token $TOKEN" \
+                "$API/$RELEASE_ID/assets/$oid"
+              echo "удалён прежний ассет $name (id=$oid)"
+            done
+            code="$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: token $TOKEN" \
+                -F "attachment=@$f" "$API/$RELEASE_ID/assets?name=$name")"
+            echo "asset $name: HTTP $code"
+            case "$code" in 2*) ;; *) echo "::error::не удалось залить $name (HTTP $code)"; exit 1 ;; esac
           done
+          echo "релиз $TAG опубликован: https://git.halfpi.ru/mario/smartclip/releases/tag/$TAG"
+
+  # ── Windows и macOS ─────────────────────────────────────────────────────
+  # Собираются на САМИХ машинах (winpc / iMac) через SSH с host-раннера:
+  # кросс-сборка Qt/MinGW и macOS .app на Linux физически невозможна.
+  # Джобы стартуют параллельно с linux и падают, если машины нет в сети —
+  # это осознанно: релиз не должен выходить «половинчатым».
+  windows:
+    name: Windows artifacts (winpc via SSH)
+    runs-on: ubuntu-latest
+    needs: [linux]
+    if: ${{ needs.linux.outputs.uploaded == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare SSH (deploy-ключ из секрета)
+        env:
+          SSH_KEY: ${{ secrets.SSH_DEPLOY_KEY }}
+        run: .forgejo/ci/setup-ssh.sh
+
+      - name: Build on winpc
+        env:
+          VERSION: ${{ needs.linux.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Проверяем по КОДУ ВОЗВРАТА: winpc отдаёт cmd в CP866, и grep по
+          # тексту даёт ложный «недоступен» (грабля 20.10.2026).
+          SSH_OPTS=(-F "$SMARTCLIP_SSH_CONFIG" -o ConnectTimeout=15 -o BatchMode=yes)
+          ssh "${SSH_OPTS[@]}" winpc 'exit 0' \
+            || { echo "::error::winpc недоступен (выключен или не в нужной сети)"; exit 1; }
+          TARBALL="/tmp/smartclip-$VERSION.tar.gz"
+          git archive --format=tar.gz -o "$TARBALL" HEAD
+          scp -F "$SMARTCLIP_SSH_CONFIG" -q "$TARBALL" winpc:C:/Users/mario/smartclip-src.tar.gz
+          scp -F "$SMARTCLIP_SSH_CONFIG" -q .forgejo/ci/win-build.sh winpc:C:/Users/mario/sc-win-build.sh
+          ssh -F "$SMARTCLIP_SSH_CONFIG" winpc 'cmd /c "C:\\msys64\\usr\\bin\\bash.exe /c/Users/mario/sc-win-build.sh 2>&1"'
+          mkdir -p dist
+          # ZIP собираем всегда (портативная версия), setup.exe — если на winpc
+          # есть Inno Setup. Отсутствие установщика НЕ роняет джобу, но пишется
+          # предупреждением в лог, чтобы это не осталось незамеченным.
+          REMOTE_DIR="winpc:C:/Users/mario/smartclip-src/dist/release-$VERSION"
+          scp -F "$SMARTCLIP_SSH_CONFIG" -q "$REMOTE_DIR/SmartClip-$VERSION-windows-x86_64.zip" dist/ \
+            || { echo "::error::Windows-артефакт не собран"; exit 1; }
+          scp -F "$SMARTCLIP_SSH_CONFIG" -q "$REMOTE_DIR/SmartClip-$VERSION-windows-x86_64-setup.exe" dist/ \
+            || echo "::warning::установщик Inno Setup не собран (нет ISCC на winpc?) — в релизе будет только ZIP"
+          ls -l dist/
+
+      - name: Publish Windows assets
+        env:
+          VERSION: ${{ needs.linux.outputs.version }}
+          TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          found=0
+          for f in dist/SmartClip-$VERSION-windows-*; do
+            .forgejo/ci/publish-asset.sh "$f" "$VERSION"
+            found=1
+          done
+          [ "$found" = 1 ] || { echo "::error::Windows-артефакты не собраны"; exit 1; }
+
+  macos:
+    name: macOS artifacts (iMac via SSH)
+    runs-on: ubuntu-latest
+    needs: [linux]
+    if: ${{ needs.linux.outputs.uploaded == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare SSH (deploy-ключ из секрета)
+        env:
+          SSH_KEY: ${{ secrets.SSH_DEPLOY_KEY }}
+        run: .forgejo/ci/setup-ssh.sh
+
+      - name: Build on iMac
+        env:
+          VERSION: ${{ needs.linux.outputs.version }}
+        run: |
+          set -euo pipefail
+          SSH_OPTS=(-F "$SMARTCLIP_SSH_CONFIG" -o ConnectTimeout=15 -o BatchMode=yes)
+          ssh "${SSH_OPTS[@]}" imac 'exit 0' \
+            || { echo "::error::iMac недоступен (выключен или его Wi-Fi не в сети RT-GPON-7A88)"; exit 1; }
+          REMOTE=/tmp/smartclip-release
+          TARBALL="/tmp/smartclip-$VERSION.tar.gz"
+          git archive --format=tar.gz -o "$TARBALL" HEAD
+          scp -F "$SMARTCLIP_SSH_CONFIG" -q "$TARBALL" "imac:$REMOTE-src.tar.gz"
+          # На iMac cmake лежит в /usr/local/bin (не в PATH неинтерактивного ssh),
+          # Qt — на внешнем диске: /Volumes/HDD/qt/6.5.3/macos (есть Qt6Mqtt).
+          MAC_QT="${MAC_QT_DIR:-/Volumes/HDD/qt/6.5.3/macos}"
+          ssh -F "$SMARTCLIP_SSH_CONFIG" imac "set -eu
+            export PATH=/usr/local/bin:/opt/homebrew/bin:\$PATH
+            test -x $MAC_QT/bin/qmake || { echo 'нет qmake: $MAC_QT'; exit 1; }
+            rm -rf $REMOTE && mkdir -p $REMOTE
+            tar -xzf $REMOTE-src.tar.gz -C $REMOTE
+            cd $REMOTE
+            QT_PATH=$MAC_QT bash scripts/release-macos.sh --jobs 4"
+          mkdir -p dist
+          for f in "SmartClip-$VERSION-macos-x86_64.zip" "SmartClip-$VERSION-macos-x86_64.dmg"; do
+            scp -F "$SMARTCLIP_SSH_CONFIG" -q "imac:$REMOTE/dist/release-$VERSION/$f" dist/ || echo "::warning::$f не забран"
+          done
+          ls -l dist/
+
+      - name: Publish macOS assets
+        env:
+          VERSION: ${{ needs.linux.outputs.version }}
+          TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          found=0
+          for f in dist/SmartClip-$VERSION-macos-*; do
+            .forgejo/ci/publish-asset.sh "$f" "$VERSION"
+            found=1
+          done
+          [ "$found" = 1 ] || { echo "::error::macOS-артефакты не собраны"; exit 1; }
+
+      - name: Summary
+        run: |
+          {
+            echo "### SmartClip ${{ steps.v.outputs.version }}"
+            if [ "${{ steps.v.outputs.uploaded }}" = "true" ]; then
+              echo "Linux-артефакты собраны и выложены в релиз \`v${{ steps.v.outputs.version }}\`."
+            else
+              echo "Версия \`${{ steps.v.outputs.version }}\` уже опубликована — сборка пропущена."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

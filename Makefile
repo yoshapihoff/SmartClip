@@ -282,9 +282,9 @@ dist: appimage
 	@ls -lh dist/ 2>/dev/null || echo "(пусто)"
 
 # =========================
-# Release: сборка артефактов, привязанных к VERSION
+# Release: сборка артефактов, привязанных к VERSION.txt
 # =========================
-# Артефакты едут в dist/release-<version>/. Версия — из файла VERSION.
+# Артефакты едут в dist/release-<version>/. Версия — из файла VERSION.txt.
 .PHONY: release release-linux release-macos deb
 
 release-linux:
@@ -302,10 +302,11 @@ ifeq ($(PLATFORM),linux)
 	@./scripts/release-linux.sh
 else ifeq ($(PLATFORM),macos)
 	@./scripts/release-macos.sh
+else ifeq ($(PLATFORM),windows)
+	@./scripts/build-installer-windows.sh
 else
-	@echo "release поддерживается на Linux и macOS"
+	@echo "release поддерживается на Linux, macOS и Windows"
 endif
-
 linux-install:
 	@./scripts/install-linux.sh --prefix $(PREFIX)
 
@@ -338,3 +339,39 @@ macos-test:
 # Готовый .app с упакованными Qt/OpenSSL, сложенный в dist/.
 bundle-macos:
 	@./scripts/build-macos.sh --bundle --dist
+
+# =========================
+# Convenience: windows-specific targets
+# =========================
+# Запускать в окружении MinGW-w64 (Qt 6.11.2 MinGW из «Пуск» или MSYS2).
+
+.PHONY: windows windows-build windows-run windows-test windows-deploy \
+        release-windows windows-installer windows-release
+
+windows: windows-build
+
+windows-build:
+	@$(MAKE) build BUILD_DIR=build-windows GENERATOR="MinGW Makefiles"
+
+windows-run:
+	@$(MAKE) run BUILD_DIR=build-windows
+
+windows-test:
+	@$(MAKE) test BUILD_DIR=build-windows
+
+# Портативный набор: SmartClip.exe + все DLL/плагины рядом (windeployqt).
+# Запускается из результата сборки, установка не нужна.
+windows-deploy:
+	@./scripts/release-windows.sh --no-zip
+
+# Портативный ZIP в dist/release-<version>/.
+release-windows:
+	@./scripts/release-windows.sh
+
+# Установщик (Inno Setup) + ZIP + SHA256SUMS в dist/release-<version>/.
+# Нужен Inno Setup 6 (бесплатный): https://jrsoftware.org/isdl.php
+windows-installer:
+	@./scripts/build-installer-windows.sh
+
+# Полный релиз под Windows: установщик, ZIP, контрольные суммы.
+windows-release: windows-installer
