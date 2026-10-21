@@ -12,7 +12,7 @@
 #     --skip-build  не пересобирать бинарник (взять build-windows/SmartClip.exe)
 #     --jobs N      параллелизм сборки
 #     --version V   версия (по умолчанию — из файла VERSION.txt)
-#     --qt DIR      префикс Qt (по умолчанию $QT_PATH либо C:/Qt/6.11.2/mingw_64)
+#     --qt DIR      префикс Qt (по умолчанию $QT_PATH либо C:/Qt/6.8.3/mingw_64)
 #     --openssl DIR корень OpenSSL (по умолчанию $OPENSSL_ROOT_DIR)
 #     --no-zip      только сложить набор в каталог, без архива
 #
@@ -25,7 +25,7 @@ DO_BUILD=1
 DO_ZIP=1
 JOBS="$(nproc 2>/dev/null || echo 4)"
 REL_VER=""
-QT_DIR="${QT_PATH:-C:/Qt/6.11.2/mingw_64}"
+QT_DIR="${QT_PATH:-C:/Qt/6.8.3/mingw_64}"
 OPENSSL_DIR="${OPENSSL_ROOT_DIR:-}"
 
 while [ $# -gt 0 ]; do
@@ -101,10 +101,95 @@ WINDEPLOYQT="$(cygpath -w "$QT_DIR/bin/windeployqt.exe" 2>/dev/null || echo "$QT
     die "windeployqt не найден в $QT_DIR/bin (проверь --qt)."
 
 # --release: только релизные DLL; --compiler-runtime: тянет libgcc/libstdc++/libwinpthread.
+#
+# ГРАБЛЯ 21.10.2026 (сломанный релиз 1.1.5): windeployqt МОЛЧА скопировал только
+# плагины и не положил ни одной Qt-DLL — в ZIP уехали 15 файлов без Qt6Core/
+# Qt6Gui/…, и на Windows приложение падало со «не найдена библиотека».
+# Причины: (1) windeployqt не видел MinGW-toolchain в PATH → --compiler-runtime
+# ничего не дал; (2) часть DLL (Qt6Svg/Qt6Mqtt) он пропускает, если зависимость
+# приходит через статический плагин. Поэтому PATH собираем явно, а после деплоя
+# ОБЯЗАТЕЛЬНО проверяем набор (блок «Проверка полноты»).
+MIN_GW_BIN=""
+for d in "$QT_DIR/../Tools"/mingw*_64/bin "$QT_DIR"/../../Tools/mingw*_64/bin; do
+    [ -d "$d" ] && { MIN_GW_BIN="$d"; break; }
+done
+if [ -n "$MIN_GW_BIN" ]; then
+    log "  MinGW: $MIN_GW_BIN"
+    export PATH="$MIN_GW_BIN:$PATH"
+else
+    warn "MinGW-toolchain рядом с Qt не найден — --compiler-runtime может ничего не скопировать."
+fi
+
+W_PREFIX="$(cygpath -m "$WIN_PREFIX" 2>/dev/null || echo "$WIN_PREFIX")"
 "$WINDEPLOYQT" --release --compiler-runtime --no-translations \
     ${WIN_LIBDIRS[@]+"${WIN_LIBDIRS[@]}"} \
-    --dir "$(cygpath -m "$WIN_PREFIX" 2>/dev/null || echo "$WIN_PREFIX")" \
+    --plugindir "$W_PREFIX" \
+    --dir "$W_PREFIX" \
     "$(cygpath -m "$WIN_PREFIX/$APP_NAME.exe" 2>/dev/null || echo "$WIN_PREFIX/$APP_NAME.exe")"
+
+# ── 1b. Дотяжка DLL, которые windeployqt пропускает ──────────────────────
+# Обходим все .exe/.dll набора и добираем отсутствующие зависимости из
+# каталогов Qt/MinGW/OpenSSL. Идемпотентно: уже скопированное не трогаем.
+HOST_PREFIX="$WIN_PREFIX"
+
+dll_search_dirs() {
+    printf '%s\n' "$QT_DIR/bin"
+    [ -n "$MIN_GW_BIN" ] && printf '%s\n' "$MIN_GW_BIN"
+    [ -n "$OPENSSL_DIR" ] && printf '%s\n' "$OPENSSL_DIR/bin" "$OPENSSL_DIR/lib"
+}
+
+find_dll() {
+    local name="$1" d
+    [ -f "$HOST_PREFIX/$name" ] && return 1   # уже есть
+    while read -r d; do
+        [ -n "$d" ] && [ -f "$d/$name" ] && { printf '%s' "$d/$name"; return 0; }
+    done < <(dll_search_dirs)
+    return 1
+}
+
+if command -v objdump >/dev/null 2>&1; then
+    log "  Проверка зависимостей (objdump)…"
+    CHANGED=1
+    while [ "$CHANGED" -eq 1 ]; do
+        CHANGED=0
+        while IFS= read -r -d '' f; do
+            while read -r dep; do
+                case "$dep" in
+                    *.dll|*.DLL) ;;
+                    *) continue ;;
+                esac
+                if src="$(find_dll "$dep")"; then
+                    cp -f "$src" "$HOST_PREFIX/"
+                    log "  + $dep"
+                    CHANGED=1
+                fi
+            done < <(objdump -p "$f" 2>/dev/null | awk '/DLL Name:/{print $3}')
+        done < <(find "$HOST_PREFIX" -maxdepth 2 -type f \( -name '*.exe' -o -name '*.dll' \) -print0)
+    done
+else
+    warn "objdump не найден — пропускаю дотяжку зависимостей."
+fi
+
+# ── 1c. Проверка полноты (guard) ─────────────────────────────────────────
+# Минимальный набор, без которого приложение на «чистой» Windows не стартует.
+# Если чего-то нет — сборка ПАДАЕТ, чтобы сломанный пакет не уехал в релиз.
+REQUIRED_DLLS=(
+    Qt6Core.dll Qt6Gui.dll Qt6Widgets.dll Qt6Network.dll Qt6Svg.dll
+    libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll
+)
+MISSING=()
+for dll in "${REQUIRED_DLLS[@]}"; do
+    [ -f "$HOST_PREFIX/$dll" ] || MISSING+=( "$dll" )
+done
+[ -f "$HOST_PREFIX/platforms/qwindows.dll" ] || MISSING+=( "platforms/qwindows.dll" )
+# Qt6Mqtt — опциональная зависимость: предупреждаем, но не роняем.
+[ -f "$HOST_PREFIX/Qt6Mqtt.dll" ] || warn "нет Qt6Mqtt.dll — сетевая синхронизация (MQTT) на Windows не заработает."
+if [ ${#MISSING[@]} -gt 0 ]; then
+    warn "В наборе НЕ ХВАТАЕТ обязательных файлов:"
+    printf '    - %s\n' "${MISSING[@]}" >&2
+    die "набор не самодостаточен — на Windows без установленного Qt приложение не запустится. Проверь --qt/--openssl и PATH MinGW."
+fi
+log "  Набор полон: все обязательные DLL на месте."
 
 # ── OpenSSL DLL ──────────────────────────────────────────────────────────
 # Qt не поставляет OpenSSL. Копируем libcrypto/libssl из --openssl, иначе —

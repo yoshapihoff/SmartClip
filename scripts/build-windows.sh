@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Сборка (и при желании запуск тестов) SmartClip из исходников под Windows.
 #
-# Запускать в окружении MinGW-w64: «Qt 6.11.2 (MinGW ...)» из меню «Пуск»
+# Запускать в окружении MinGW-w64: «Qt 6.8.3 (MinGW ...)» из меню «Пуск»
 # либо MSYS2/Git Bash с добавленными в PATH Qt- и MinGW-каталогами.
 #
 # Использование:
@@ -10,11 +10,11 @@
 #     --test           после сборки прогнать ctest (offscreen)
 #     --debug          сборка Debug (по умолчанию Release)
 #     --jobs N         параллелизм (по умолчанию — число ядер)
-#     --qt DIR         префикс Qt (по умолчанию $QT_PATH либо C:/Qt/6.11.2/mingw_64)
+#     --qt DIR         префикс Qt (по умолчанию $QT_PATH либо C:/Qt/6.8.3/mingw_64)
 #     --openssl DIR    корень OpenSSL (по умолчанию $OPENSSL_ROOT_DIR)
 #     --generator NAME CMake-генератор (по умолчанию «MinGW Makefiles»)
 #
-# Зависимости: Qt 6.11.2 (MinGW) с модулем MQTT, OpenSSL 3.x, собранный тем же
+# Зависимости: Qt 6.8.3 (MinGW) с модулем MQTT, OpenSSL 3.x, собранный тем же
 # MinGW (см. docs/BUILD-WINDOWS.md), CMake, MinGW-w64.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -23,7 +23,7 @@ BUILD_DIR="build-windows"
 BUILD_TYPE="Release"
 DO_TEST=0
 JOBS="$(nproc 2>/dev/null || echo 4)"
-QT_DIR="${QT_PATH:-C:/Qt/6.11.2/mingw_64}"
+QT_DIR="${QT_PATH:-C:/Qt/6.8.3/mingw_64}"
 OPENSSL_DIR="${OPENSSL_ROOT_DIR:-}"
 GENERATOR="MinGW Makefiles"
 

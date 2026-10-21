@@ -149,7 +149,6 @@ tar -xzf smartclip-src.tar.gz -C smartclip-src
 cd smartclip-src
 export QT_PATH="${QT_PATH:-C:/Qt/6.8.3/mingw_64}"
 export PATH="/c/Qt/Tools/mingw1310_64/bin:/c/Qt/Tools/CMake/bin:/c/Qt/Tools/Ninja:$PATH"
-export QT_PATH="${QT_PATH:-C:/Qt/6.8.3/mingw_64}"
 # Inno Setup 6 лежит в профиле (установка /CURRENTUSER, без UAC).
 if [ -z "${ISCC:-}" ]; then
     for c in /c/Users/mario/InnoSetup6/ISCC.exe "/c/Program Files (x86)/Inno Setup 6/ISCC.exe"; do
