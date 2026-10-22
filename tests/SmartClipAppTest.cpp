@@ -66,6 +66,7 @@ private slots:
     void testHelpDialogTitleHasNoVersion();
     void testTrayPopupAboutButton();
     void testTrayPopupEmptyStateNotSquished();
+    void testTrayPopupHoverIndicatesEveryRow();
 
 private:
     QApplication *m_app;
@@ -605,6 +606,53 @@ void TestSmartClipApp::testTrayPopupDeactivateHideOnlyOnWayland()
 // «Clipboard history is empty» и кнопки футера обязаны быть видны целиком.
 // Регрессия: высота считалась по m_empty->isVisible() (false до show()) и
 // скролл-вьюпорт забирал высоту у заглушки → обрезка заголовка и кнопок.
+// Наведение мыши выделяет ВСЕ строки (а не только избранные): под курсором
+// меняется фон rowHost и текст получает тень (подчёркивание больше не
+// используется). Проверяем без реального курсора: посылаем Enter/Leave сами.
+void TestSmartClipApp::testTrayPopupHoverIndicatesEveryRow()
+{
+    TrayPopup popup;
+    TrayPopup::RowData plain;
+    plain.text = QStringLiteral("plain-row-text");
+    plain.display = plain.text;
+    TrayPopup::RowData fav;
+    fav.text = QStringLiteral("favorite-row-text");
+    fav.display = fav.text;
+    fav.favorite = true;
+    fav.color = QColor(QStringLiteral("#ff0000"));
+    popup.setRows({plain, fav});
+    popup.showAt(QPoint(200, 100));
+    QVERIFY(popup.isVisible());
+
+    const auto rows = popup.findChildren<QWidget *>(QStringLiteral("rowHost"));
+    QVERIFY2(rows.size() == 2, "Two rows expected");
+
+    for (QWidget *row : rows) {
+        QVERIFY2(row->styleSheet().isEmpty(),
+                 "Row must have no hover background before hover");
+        QEvent enter(QEvent::Enter);
+        QCoreApplication::sendEvent(row, &enter);
+        QVERIFY2(!row->styleSheet().isEmpty(),
+                 "Every row (plain or favorite) must get a hover background");
+        // Подчёркивание не используется ни у одной строки (раньше было только
+        // у избранных) — проверяем шрифты текстовых виджетов внутри строки.
+        const auto inner = row->findChildren<QWidget *>();
+        bool sawText = false;
+        for (QWidget *w : inner) {
+            if (qobject_cast<QToolButton *>(w))
+                continue;
+            if (w->font().underline())
+                QFAIL("Hover must not underline text anymore");
+            sawText = true;
+        }
+        QVERIFY2(sawText, "Row must contain a text widget");
+        QEvent leave(QEvent::Leave);
+        QCoreApplication::sendEvent(row, &leave);
+        QVERIFY2(row->styleSheet().isEmpty(),
+                 "Hover background must be reset on leave");
+    }
+}
+
 void TestSmartClipApp::testTrayPopupEmptyStateNotSquished()
 {
     TrayPopup popup;

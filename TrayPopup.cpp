@@ -69,7 +69,8 @@ namespace {
 // Стили для светлой/тёмной темы (близко к виду GNOME/Adwaita).
 struct Palette {
     QString cardBg, cardBorder, titleFg, itemFg, itemHover,
-            accent, accentFg, muted, danger, sep, iconFg;
+            accent, accentFg, muted, danger, sep, iconFg,
+            rowHoverBg;   // фон строки под курсором
 };
 
 Palette lightPalette()
@@ -79,7 +80,7 @@ Palette lightPalette()
             QStringLiteral("#ececf0"), QStringLiteral("#3584e4"),
             QStringLiteral("#ffffff"), QStringLiteral("#9a9aa0"),
             QStringLiteral("#e62d42"), QStringLiteral("#e6e6eb"),
-            QStringLiteral("#44444c")};
+            QStringLiteral("#44444c"), QStringLiteral("#dfe3ee")};
 }
 
 Palette darkPalette()
@@ -89,11 +90,23 @@ Palette darkPalette()
             QStringLiteral("#3a3a41"), QStringLiteral("#3584e4"),
             QStringLiteral("#ffffff"), QStringLiteral("#9a9aa0"),
             QStringLiteral("#ff6b6b"), QStringLiteral("#3a3a41"),
-            QStringLiteral("#d0d0d8")};
+            QStringLiteral("#d0d0d8"), QStringLiteral("#4a4a56")};
 }
 
 constexpr int kActionWidth = 24;
 constexpr int kRowHeight = 24;
+
+/**
+ * Цвет мягкой тени/свечения вокруг текста строки под курсором.
+ * Амбер-подобный тёплый акцент читается и на светлой, и на тёмной теме.
+ */
+QColor hoverGlow(bool dark)
+{
+    QColor c = dark ? QColor(QStringLiteral("#ffd479"))   // светло-янтарный
+                    : QColor(QStringLiteral("#c98a00"));  // тёмно-янтарный
+    c.setAlphaF(dark ? 0.55 : 0.65);
+    return c;
+}
 
 } // namespace
 
@@ -116,8 +129,18 @@ public:
     void setTextColor(const QColor &c) { m_fg = c; update(); }
     // Сам текст элемента — ЖИРНЫЙ (комментарий рисуется в IdleText отдельно).
     void setTextBold(bool b) { m_bold = b; update(); }
-    // Подчёркивание текста при наведении на строку (индикация кликабельности).
-    void setHovered(bool h) { m_hovered = h; update(); }
+    // Наведение на строку → «активное» состояние текста: мягкая тень вокруг
+    // букв (ровно тот же эффект у избранных и обычных записей).
+    void setHovered(bool h)
+    {
+        if (m_hovered == h)
+            return;
+        m_hovered = h;
+        update();
+    }
+    // Цвет тени при наведении (из темы: тёплый янтарный, см. hoverGlow()).
+    void setHoverGlow(const QColor &c) { m_glow = c; update(); }
+    bool isHovered() const { return m_hovered; }
     // Комментарий: отдельный НЕжирный приглушённый элемент после текста.
     void setComment(const QString &c) { m_comment = c; update(); }
     void setCommentColor(const QColor &c) { m_commentFg = c; update(); }
@@ -163,7 +186,9 @@ protected:
         p.setPen(m_fg.isValid() ? m_fg : palette().color(QPalette::WindowText));
         QFont f = font();
         f.setBold(m_bold);
-        f.setUnderline(m_hovered);
+        // При наведении подчёркивание БОЛЬШЕ НЕ ИСПОЛЬЗУЕТСЯ (раньше оно было
+        // только у избранных строк). Теперь признак наведения — общий для всех
+        // строк: мягкая тень вокруг текста + подсветка фона (см. RowWidget).
         const QFontMetrics fm(f);
         const int w = width() - left - 6;
 
@@ -184,17 +209,18 @@ protected:
             const int mainElW = fm.horizontalAdvance(mainEl);
 
             p.setFont(f);
-            p.drawText(QRect(left, 1, mainElW + 2, height() - 2),
-                       Qt::AlignVCenter | Qt::AlignLeft, mainEl);
+            drawTextWithGlow(p, QRect(left, 1, mainElW + 2, height() - 2),
+                             mainEl);
             p.setPen(m_commentFg.isValid() ? m_commentFg
                                            : palette().color(QPalette::WindowText));
             p.setFont(cf);
-            p.drawText(QRect(left + mainElW, 1, w - mainElW, height() - 2),
-                       Qt::AlignVCenter | Qt::AlignLeft, sep + commentEl);
+            // Комментарий — вторичный элемент: при наведении тоже подсвечиваем
+            // (но слабее), чтобы строка выглядела единым «живым» блоком.
+            drawTextWithGlow(p, QRect(left + mainElW, 1, w - mainElW, height() - 2),
+                             sep + commentEl, /*strong=*/false);
         } else {
             const QString el = fm.elidedText(m_text, Qt::ElideRight, qMax(0, w));
-            p.drawText(QRect(left, 1, w, height() - 2),
-                       Qt::AlignVCenter | Qt::AlignLeft, el);
+            drawTextWithGlow(p, QRect(left, 1, w, height() - 2), el);
         }
     }
     void mouseReleaseEvent(QMouseEvent *e) override
@@ -205,13 +231,39 @@ protected:
     }
 
 private:
+    /**
+     * Нарисовать текст с мягкой тенью (если строка под курсором) и обычным
+     * цветом. Полный накладывает округлую тень по 8 смещениям, вторичный —
+     * только по 4 (комментарий не должен «светиться» сильнее самого текста).
+     */
+    void drawTextWithGlow(QPainter &p, const QRect &r, const QString &s,
+                          bool strong = true)
+    {
+        const int flags = Qt::AlignVCenter | Qt::AlignLeft;
+        if (!m_hovered || !m_glow.isValid()) {
+            p.drawText(r, flags, s);
+            return;
+        }
+        // Сохраняем основной цвет, тень рисуем цветом m_glow.
+        const QColor fg = p.pen().color();
+        p.setPen(m_glow);
+        static const int dxFull[8] = {-1, 1, 0, 0, -1, -1, 1, 1};
+        static const int dyFull[8] = {0, 0, -1, 1, -1, 1, -1, 1};
+        const int n = strong ? 8 : 4;
+        for (int i = 0; i < n; ++i)
+            p.drawText(r.translated(dxFull[i], dyFull[i]), flags, s);
+        p.setPen(fg);
+        p.drawText(r, flags, s);
+    }
+
     QString m_text;
     QColor m_marker;
     QColor m_fg;   // цвет текста (из темы попапа)
     QColor m_commentFg;   // цвет комментария (приглушённый)
+    QColor m_glow;        // цвет тени текста при наведении
     QString m_comment;    // комментарий (нежирный, после текста)
     bool m_bold = false;      // сам текст элемента — жирный
-    bool m_hovered = false;   // наведение → подчёркивание
+    bool m_hovered = false;   // наведение → тень текста + фон строки
 };
 
 /** Контейнер строки: при наведении показывает кнопки-действия. */
@@ -234,7 +286,7 @@ public:
         m_actions->setVisible(always);
     }
 
-    /** Вернуть строку в не-hover вид (кнопки спрятать, фон и подчёркивание убрать).
+    /** Вернуть строку в не-hover вид (кнопки спрятать, фон и тень убрать).
      *  Нужно при скрытии окна: leaveEvent тогда не приходит. */
     void resetHover()
     {
@@ -249,10 +301,13 @@ protected:
     void enterEvent(QEnterEvent *e) override
     {
         m_actions->setVisible(true);
+        // Подсветка фона строки (фиксированный цвет темы, а не случайный из
+        // hover-палитры) — видна у ВСЕХ строк, включая обычные (раньше
+        // индикация наведения была только у избранных — подчёркивание).
         setStyleSheet(QStringLiteral("#rowHost { background: %1; border-radius: 6px; }")
                           .arg(m_hoverBg));
-        // Наведение на строку → подчёркиваем текст элемента (только сам текст,
-        // не комментарий — тот рисуется отдельным проходом).
+        // Тень вокруг текста элемента (сам текст, не комментарий — у него
+        // своя слабая тень внутри ElidedLabel).
         if (m_textWidget)
             m_textWidget->setHovered(true);
         QWidget::enterEvent(e);
@@ -582,6 +637,7 @@ void TrayPopup::setRows(const QVector<RowData> &rows)
         auto *text = new ElidedLabel(m_card);
         text->setFullText(r.display);
         text->setTextColor(QColor(p.itemFg));
+        text->setHoverGlow(hoverGlow(m_dark));   // тень текста при наведении
         text->setTextBold(true);   // сам текст элемента — жирный
         if (!r.comment.isEmpty()) {
             // Комментарий — «как есть»: тот же цвет, что и раньше, но НЕжирный.
@@ -641,10 +697,7 @@ void TrayPopup::setRows(const QVector<RowData> &rows)
         addAction(QStringLiteral("close"), QStringLiteral("Delete"), false,
                   danger, &TrayPopup::deleteRequested);
 
-        auto *row = new RowWidget(text, actions,
-                                  m_dark ? QStringLiteral("#3a3a41")
-                                         : QStringLiteral("#ececf0"),
-                                  m_card);
+        auto *row = new RowWidget(text, actions, p.rowHoverBg, m_card);
         row->setObjectName(QStringLiteral("rowHost"));
         row->setFixedHeight(kRowHeight);
 
