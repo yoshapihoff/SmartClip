@@ -70,6 +70,15 @@ target_link_libraries(LayoutConverterTest
         Qt6::Test
 )
 
+if(APPLE)
+    # Carbon — TIS/UCKeyTranslate в LayoutConverter (как у основного таргета).
+    # Грабля 24.10.2026: тесты на macOS не линковались
+    # («Undefined symbols: _kTISProperty... / _TISCopyCurrentKeyboardInputSource»),
+    # потому что фреймворк был привязан только к SmartClip.
+    target_link_libraries(LayoutConverterTest PRIVATE "-framework Carbon")
+    target_compile_options(LayoutConverterTest PRIVATE "-Wno-deprecated-declarations")
+endif()
+
 if(UNIX AND NOT APPLE)
     find_package(PkgConfig QUIET)
     if(PkgConfig_FOUND)
@@ -186,6 +195,15 @@ endif()
 if(WIN32)
     # Реестр/Credential Manager (advapi32) + ToUnicodeEx/раскладки (user32).
     target_link_libraries(SmartClipAppTest PRIVATE advapi32 user32)
+endif()
+
+if(APPLE)
+    # Carbon (TIS/UCKeyTranslate через LayoutConverter) + ApplicationServices
+    # (CGEvent/CGEventPost для вставки исправленного текста в прежнее окно)
+    # и AppKit — те же фреймворки, что у основного таргета.
+    target_link_libraries(SmartClipAppTest PRIVATE
+        "-framework Carbon" "-framework ApplicationServices")
+    target_compile_options(SmartClipAppTest PRIVATE "-Wno-deprecated-declarations")
 endif()
 
 add_test(NAME VersionTest COMMAND VersionTest)
