@@ -19,10 +19,30 @@ SRC="$WORK/smartclip-src"
 
 echo "== Windows build: Qt=$QT_DIR =="
 
-rm -rf "$SRC"
-mkdir -p "$SRC"
-tar -xzf "$WORK/smartclip-src.tar.gz" -C "$SRC"
+# ── Исходники: winpc тянет их САМ по git (решение 24.10.2026) ──────
+# Раньше CI клал на машину tar-архив (smartclip-src.tar.gz) — приходилось
+# каждый раз заливать его вручную. Теперь клон делается здесь же:
+#   • ключ машины: ~/.ssh/id_ed25519_smartclip (deploy-ключ Forgejo, read-only,
+#     добавлен в репозиторий mario/smartclip);
+#   • SSH из MSYS2 НЕ читает ~/.ssh/config (ssh -G упорно отдаёт порт 22 и
+#     стандартные identity), поэтому порт/ключ передаём через GIT_SSH_COMMAND.
+#     Грабля 24.10.2026: без этого git clone падал «Permission denied (publickey)».
+#   • повторный прогон — fetch + reset --hard, чтобы не клонировать с нуля.
+REPO_URL="${SMARTCLIP_REPO:-ssh://git@git.halfpi.ru:2222/mario/smartclip.git}"
+SSH_KEY="${SMARTCLIP_SSH_KEY:-/c/Users/mario/.ssh/id_ed25519_smartclip}"
+export GIT_SSH_COMMAND="ssh -i $SSH_KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -p 2222"
+
+if [ -d "$SRC/.git" ]; then
+    echo "== git fetch (обновление существующего клона) =="
+    git -C "$SRC" fetch --depth 1 origin main
+    git -C "$SRC" reset --hard FETCH_HEAD
+else
+    echo "== git clone $REPO_URL =="
+    rm -rf "$SRC"
+    git clone --depth 1 "$REPO_URL" "$SRC"
+fi
 cd "$SRC"
+echo "== исходники: $(cat VERSION.txt 2>/dev/null) @ $(git rev-parse --short HEAD) =="
 
 export QT_PATH="$QT_DIR"
 export PATH="/c/Qt/Tools/mingw1310_64/bin:/c/Qt/Tools/CMake/bin:/c/Qt/Tools/Ninja:$PATH"
