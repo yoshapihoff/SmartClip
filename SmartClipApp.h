@@ -48,6 +48,8 @@ private slots:
     void onToggleFavorite(const QString &text);
     /** Сменить раскладку текста записи (перекодировать в следующую). */
     void onConvertLayout(const QString &text);
+    /** Клик по полосе «исправленный текст в буфере» → вставить в прежнее окно. */
+    void onPasteConverted();
     
     // Методы для управления цветами избранного
     int getFavoriteColorIndex(const QString &text);
@@ -95,6 +97,47 @@ private:
 
     bool ignoreNextClipboardChange = false;
     QString lastClipboardText;
+
+    // ── Смена раскладки + буфер обмена ─────────────────────────────────
+    // Решение 2026-10-24: исправленный текст уходит в буфер СРАЗУ, но
+    // применяется («вставляется» в чужое окно) только по явному действию —
+    // иначе новый текст затирал бы то, что пользователь как раз собирался
+    // вставить. Пока исправление «висит», приложение помнит:
+    //   • что лежало в буфере ДО (чтобы вернуть, если передумали);
+    //   • какой редактор был в фокусе (чтобы вернуть ему фокус при вставке);
+    //   • что запись истории `convertedOriginal` дала текст `convertedText`.
+    struct ConvertedClip {
+        bool active = false;
+        QString text;        // исправленный текст (лежит в буфере)
+        QString original;    // что было в буфере до смены раскладки
+        QString sourceText;  // запись истории, из которой сделали исправление
+        QString layout;      // раскладка, в которую перекодировали
+#if defined(Q_OS_MAC)
+        // macOS: вставку делаем через CGEvent, ему не нужен фокус — но
+        // сохраняем приложение-цель, чтобы вернуть фокус после вставки.
+        void *prevApp = nullptr;
+#endif
+#if defined(Q_OS_WIN)
+        // Windows: HWND редактора, которому вернём фокус перед Ctrl+V.
+        quintptr prevWnd = 0;
+#endif
+    };
+    ConvertedClip converted;
+
+    /** Вернуть буфер в состояние «до смены раскладки» (если исправление висит). */
+    void revertConvertedClipboard();
+    /**
+     * Отдать исправленный текст в прежнее окно: вернуть ему фокус и нажать
+     * Ctrl+V / Cmd+V. Требует нативных разрешений (Windows/macOS).
+     * Возвращает false, если вставка невозможна — тогда текст остаётся в
+     * буфере, и пользователь вставляет его сам.
+     */
+    bool pasteConvertedIntoPrevious();
+    /** Запомнить окно/приложение, которое было активно до открытия попапа. */
+    void rememberPreviousTarget();
+    /** Можно ли автоматически жать Ctrl/Cmd+V на этой платформе. */
+    static bool syntheticPasteAvailable();
+
     bool exitHandled = false;
 
     QTimer *clipboardPollTimer = nullptr;

@@ -48,6 +48,17 @@
 #    define NOMINMAX
 #  endif
 #  include <windows.h>
+#  include <objbase.h>
+#endif
+
+#if defined(Q_OS_MAC)
+// Вставка исправленного текста в прежнее окно: CGEvent (Ctrl/Cmd+V) и
+// возврат фокуса приложению через NSRunningApplication.
+#  include <ApplicationServices/ApplicationServices.h>
+#  include <Carbon/Carbon.h>
+#  if defined(__OBJC__)
+#    import <AppKit/AppKit.h>
+#  endif
 #endif
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
@@ -245,6 +256,9 @@ SmartClipApp::SmartClipApp(QObject *parent)
                 [this](const QString &text) { toggleItemMask(text); refreshTrayPopup(); });
         connect(trayPopup, &TrayPopup::layoutConvertRequested, this,
                 &SmartClipApp::onConvertLayout);
+        // Клик по полосе «исправленный текст в буфере» — вставить в прежнее окно.
+        connect(trayPopup, &TrayPopup::pasteIntoPreviousRequested, this,
+                &SmartClipApp::onPasteConverted);
         connect(trayPopup, &TrayPopup::commentRequested, this,
                 [this](const QString &text) {
                     QString newComment;
@@ -659,6 +673,14 @@ void SmartClipApp::onConvertLayout(const QString &text)
         return;
     }
 
+    // Исходник текущего исправления: ещё раз жать не надо — новый текст уже
+    // в буфере, а «переконвертировать» исходник можно только после того, как
+    // исправление применено или отменено (см. onPasteConverted/отмену).
+    if (converted.active && text == converted.sourceText) {
+        refreshTrayPopup();
+        return;
+    }
+
     // Текущая раскладка именно этого элемента. Если мы её ещё не помним
     // (запись только что появилась/пришла по синку) — определяем по самому
     // тексту, чтобы работали оба направления (us→ru и ru→us).
@@ -683,15 +705,184 @@ void SmartClipApp::onConvertLayout(const QString &text)
     layoutOfItem.remove(text);
     layoutOfItem[converted] = next;
 
-    // Новый текст сразу в буфер — как при выборе элемента истории.
-    if (QClipboard *clipboard = QApplication::clipboard()) {
+    // Исправленный текст — в буфер обмена (решение Лёши 24.10.2026): так его
+    // можно вставить в ЛЮБОЕ поле — из меню трея, из другого приложения,
+    // горячей клавишей. Порядок важен: сначала не даём SmartClip
+    // зарегистрировать собственную запись как «новую копию», потом пишем.
+    //
+    // Отдельно запоминаем, что лежало в буфере ДО и какое окно было активно:
+    // если пользователь сразу откроет попап, полоса сверху предложит вставить
+    // исправленное в прежнее окно, а отмена вернёт прежний буфер.
+    QClipboard *clipboard = QApplication::clipboard();
+    QString prevText;
+    if (clipboard) {
+        prevText = clipboard->text(QClipboard::Clipboard);
         ignoreNextClipboardChange = true;
         clipboard->setText(converted, QClipboard::Clipboard);
+        lastClipboardText = converted;   // polling не должен принять это за копию
     }
+    // Помним исправление: полоса попапа предложит вставить его в прежнее
+    // окно, а отмена (revertConvertedClipboard) вернёт прежний буфер.
+    this->converted.active = true;
+    this->converted.text = converted;
+    this->converted.original = prevText;
+    this->converted.sourceText = text;
+    this->converted.layout = next;
 
     persistHistory();
     notifySync();
-    refreshTrayPopup();   // попап пересобирается на месте с новым текстом
+    refreshTrayPopup();   // попап пересобирается: полоса + пометка строки-исходника
+}
+
+// ── Смена раскладки + буфер: возврат, вставка в прежнее окно ──────────────
+//
+// Зачем так: текст, сменивший раскладку, кладём в буфер СРАЗУ (его можно
+// вставить хоть горячей клавишей, хоть из меню), но «применить» его в чужое
+// окно — только по явному действию пользователя. Иначе новый текст затирает
+// то, что человек как раз собирался вставить (кнопка «вставить» в КУДА надо
+// была нажата до того, как SmartClip перезаписал буфер).
+
+void SmartClipApp::revertConvertedClipboard()
+{
+    if (!converted.active)
+        return;
+    if (QClipboard *clipboard = QApplication::clipboard()) {
+        ignoreNextClipboardChange = true;
+        clipboard->setText(converted.original, QClipboard::Clipboard);
+        lastClipboardText = converted.original;
+    }
+    converted = ConvertedClip();
+    refreshTrayPopup();
+}
+
+bool SmartClipApp::syntheticPasteAvailable()
+{
+#if defined(Q_OS_WIN) || defined(Q_OS_MAC)
+    // Linux/Wayland: универсального синтетического ввода без спецразрешений
+    // нет (ydotool/wtype — отдельные демоны с правами root), поэтому там
+    // кнопка «Paste» не показывается: текст просто лежит в буфере.
+    return true;
+#else
+    return false;
+#endif
+}
+
+void SmartClipApp::rememberPreviousTarget()
+{
+#if defined(Q_OS_WIN)
+    // Активное окно ДО открытия попапа — туда вернём фокус перед Ctrl+V.
+    converted.prevWnd = reinterpret_cast<quintptr>(::GetForegroundWindow());
+#elif defined(Q_OS_MAC)
+    // macOS: попап показан через no-activate путь (LSUIElement), поэтому
+    // предыдущее приложение обычно всё ещё активно — запоминаем его.
+    if (!converted.prevApp) {
+        ProcessSerialNumber psn = {0, kNoProcess};
+        ProcessSerialNumber self = {0, kNoProcess};
+        if (::GetCurrentProcess(&self) == noErr
+            && ::GetFrontProcess(&psn) == noErr
+            && !(psn.lowLongOfPSN == self.lowLongOfPSN
+                 && psn.highLongOfPSN == self.highLongOfPSN)) {
+            converted.prevApp = psn.lowLongOfPSN
+                    ? reinterpret_cast<void *>(static_cast<quintptr>(psn.highLongOfPSN) << 32
+                                               | static_cast<quintptr>(psn.lowLongOfPSN))
+                    : nullptr;
+        }
+    }
+#endif
+}
+
+void SmartClipApp::onPasteConverted()
+{
+    if (!converted.active || converted.text.isEmpty())
+        return;
+    const QString text = converted.text;
+    if (!pasteConvertedIntoPrevious()) {
+        // Не смогли нажать Ctrl/Cmd+V (нет разрешения или платформа не умеет):
+        // текст уже в буфере — просто просим вставить вручную.
+        if (trayPopup)
+            trayPopup->hide();
+        if (QClipboard *clipboard = QApplication::clipboard()) {
+            ignoreNextClipboardChange = true;
+            clipboard->setText(text, QClipboard::Clipboard);
+            lastClipboardText = text;
+        }
+        qInfo() << "SmartClip: автоматическая вставка недоступна — текст оставлен в буфере";
+        return;
+    }
+    // Вставка ушла в прежнее окно — «исправление» применено, состояние снимаем.
+    converted = ConvertedClip();
+    refreshTrayPopup();
+}
+
+bool SmartClipApp::pasteConvertedIntoPrevious()
+{
+#if defined(Q_OS_WIN)
+    const HWND hwnd = reinterpret_cast<HWND>(converted.prevWnd);
+    if (!hwnd || !::IsWindow(hwnd))
+        return false;
+    // Фокус чужому окну: системный Alt-приём (обход запрета SetForegroundWindow
+    // из неактивного процесса) + само возвращение фокуса.
+    if (::GetForegroundWindow() != hwnd) {
+        const DWORD fgThread = ::GetWindowThreadProcessId(::GetForegroundWindow(), nullptr);
+        const DWORD thisThread = ::GetCurrentThreadId();
+        const bool attached = fgThread && fgThread != thisThread
+                && ::AttachThreadInput(thisThread, fgThread, TRUE);
+        ::SetForegroundWindow(hwnd);
+        ::BringWindowToTop(hwnd);
+        if (attached)
+            ::AttachThreadInput(thisThread, fgThread, FALSE);
+    }
+    // Дадим чужому окну обработать активацию, иначе Ctrl+V уйдёт «в пустоту».
+    ::Sleep(60);
+
+    INPUT in[4] = {};
+    const auto fill = [&in](int i, WORD vk, bool up) {
+        in[i].type = INPUT_KEYBOARD;
+        in[i].ki.wVk = vk;
+        in[i].ki.wScan = static_cast<WORD>(::MapVirtualKeyW(vk, MAPVK_VK_TO_VSC));
+        in[i].ki.dwFlags = up ? KEYEVENTF_KEYUP : 0;
+    };
+    fill(0, VK_CONTROL, false);
+    fill(1, 'V', false);
+    fill(2, 'V', true);
+    fill(3, VK_CONTROL, true);
+    const UINT sent = ::SendInput(4, in, sizeof(INPUT));
+    return sent == 4;
+#elif defined(Q_OS_MAC)
+    // macOS: синтетический Cmd+V через CGEvent. Нужно разрешение
+    // «Универсальный доступ» (Accessibility) — без него события режет TCC.
+    if (!converted.prevApp)
+        return false;
+    const quintptr packed = reinterpret_cast<quintptr>(converted.prevApp);
+    ProcessSerialNumber psn;
+    psn.highLongOfPSN = static_cast<UInt32>(packed >> 32);
+    psn.lowLongOfPSN = static_cast<UInt32>(packed & 0xffffffffu);
+    ::SetFrontProcess(&psn);
+    ::CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.12, false);
+
+    CGEventSourceRef src = ::CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
+    if (!src)
+        return false;
+    CGEventRef down = ::CGEventCreateKeyboardEvent(src, (CGKeyCode)kVK_ANSI_V, true);
+    CGEventRef up = ::CGEventCreateKeyboardEvent(src, (CGKeyCode)kVK_ANSI_V, false);
+    if (!down || !up) {
+        if (down) ::CFRelease(down);
+        if (up) ::CFRelease(up);
+        ::CFRelease(src);
+        return false;
+    }
+    ::CGEventSetFlags(down, kCGEventFlagMaskCommand);
+    ::CGEventSetFlags(up, kCGEventFlagMaskCommand);
+    ::CGEventPost(kCGHIDEventTap, down);
+    ::CGEventPost(kCGHIDEventTap, up);
+    ::CFRelease(down);
+    ::CFRelease(up);
+    ::CFRelease(src);
+    return true;
+#else
+    // Linux/Wayland: синтетического ввода без спецдемонов нет.
+    return false;
+#endif
 }
 
 int SmartClipApp::getFavoriteColorIndex(const QString &text)
@@ -1001,6 +1192,8 @@ void SmartClipApp::refreshTrayPopup()
     for (const auto &item : history) {
         TrayPopup::RowData r;
         r.text = item.text;
+        r.convertedSource = converted.active && !converted.sourceText.isEmpty()
+                && item.text == converted.sourceText;
         r.display = item.maskInMenu ? maskForMenuDisplay(item.text) : item.text;
         r.display.replace(QLatin1Char('\n'), QLatin1Char(' '));
         if (r.display.size() > kMaxItemChars)
@@ -1033,6 +1226,21 @@ void SmartClipApp::refreshTrayPopup()
         }
     }
     trayPopup->setRows(rows);
+    // Полоса «исправленный текст в буфере»: видна, пока помним последнюю
+    // смену раскладки и её результат ещё лежит в буфере (или сразу после).
+    if (converted.active) {
+        if (QClipboard *clipboard = QApplication::clipboard()) {
+            if (!converted.text.isEmpty()
+                && clipboard->text(QClipboard::Clipboard) == converted.text) {
+                trayPopup->setConvertedText(converted.text);
+            } else {
+                // Пользователь уже скопировал что-то другое — полоса не нужна.
+                trayPopup->setConvertedText(QString());
+            }
+        }
+    } else {
+        trayPopup->setConvertedText(QString());
+    }
 }
 
 void SmartClipApp::showTrayPopup()
@@ -1081,6 +1289,9 @@ void SmartClipApp::showTrayPopup()
             anchor = QPoint(g.center().x(), g.bottom());
     }
     popupShownAtMs = QDateTime::currentMSecsSinceEpoch();
+    // Запоминаем, чьё окно было активно ДО открытия попапа: туда вернём фокус,
+    // когда пользователь попросит вставить исправленный текст.
+    rememberPreviousTarget();
 #if defined(Q_OS_MAC)
     macBringAppForward();
 #endif

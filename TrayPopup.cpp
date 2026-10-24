@@ -348,6 +348,35 @@ TrayPopup::TrayPopup(QWidget *parent)
     m_title->setWordWrap(true);
     lay->addWidget(m_title);
 
+    // Полоса «исправленный текст в буфере» (появляется только после смены
+    // раскладки). Лежит сразу под заголовком и до строк истории: скриншот
+    // подтверждает, что текст уже в буфере, а кнопка возвращает фокус в
+    // прежнее окно и вставляет его туда.
+    m_convertedBar = new QWidget(m_card);
+    m_convertedBar->setObjectName(QStringLiteral("convertedBar"));
+    {
+        auto *cl = new QHBoxLayout(m_convertedBar);
+        cl->setContentsMargins(8, 2, 8, 4);
+        cl->setSpacing(6);
+        m_convertedLabel = new QLabel(m_convertedBar);
+        m_convertedLabel->setObjectName(QStringLiteral("convertedLabel"));
+        m_convertedLabel->setTextFormat(Qt::PlainText);
+        m_convertedLabel->setWordWrap(false);
+        cl->addWidget(m_convertedLabel, 1);
+        m_convertedBtn = new QPushButton(QStringLiteral("Paste"), m_convertedBar);
+        m_convertedBtn->setObjectName(QStringLiteral("convertedBtn"));
+        m_convertedBtn->setToolTip(QStringLiteral("Paste the converted text into the previous window"));
+        m_convertedBtn->setCursor(Qt::PointingHandCursor);
+        m_convertedBtn->setFlat(true);
+        connect(m_convertedBtn, &QPushButton::clicked, this, [this]() {
+            hide();
+            emit pasteIntoPreviousRequested();
+        });
+        cl->addWidget(m_convertedBtn, 0);
+    }
+    m_convertedBar->setVisible(false);
+    lay->addWidget(m_convertedBar);
+
     m_scroll = new QScrollArea(m_card);
     m_scroll->setObjectName(QStringLiteral("scroll"));
     m_scroll->setWidgetResizable(true);
@@ -434,6 +463,27 @@ TrayPopup::TrayPopup(QWidget *parent)
 
     applyStyle();
     resize(360, 420);
+}
+
+void TrayPopup::setConvertedText(const QString &text)
+{
+    m_convertedText = text;
+    if (!m_convertedBar)
+        return;
+    if (text.isEmpty()) {
+        m_convertedBar->setVisible(false);
+        return;
+    }
+    // В полосе — эллипсис: полный текст уже в буфере, а окно не должно
+    // разъезжаться из-за длинной строки.
+    QString shown = text;
+    shown.replace(QLatin1Char('\n'), QLatin1Char(' '));
+    constexpr int kMaxChars = 40;
+    if (shown.size() > kMaxChars)
+        shown = shown.left(kMaxChars - 1) + QStringLiteral("\u2026");
+    m_convertedLabel->setText(shown);
+    m_convertedLabel->setToolTip(text);
+    m_convertedBar->setVisible(true);
 }
 
 void TrayPopup::setVersion(const QString &version)
@@ -685,9 +735,15 @@ void TrayPopup::setRows(const QVector<RowData> &rows)
         addAction(QStringLiteral("star"), QStringLiteral("Favorite"), r.favorite,
                   iconFg, &TrayPopup::favoriteToggled);
         if (m_layoutConvert) {
+            // Активная (залитая) клавиатура — строка-исходник последней смены
+            // раскладки: исправленный текст уже в буфере (см. полосу сверху).
             addAction(QStringLiteral("keyboard"),
-                      QStringLiteral("Change text keyboard layout"), false,
-                      iconFg, &TrayPopup::layoutConvertRequested);
+                      r.convertedSource
+                          ? QStringLiteral("Converted — new text is in the clipboard "
+                                           "(see the bar above)")
+                          : QStringLiteral("Change text keyboard layout"),
+                      r.convertedSource, iconFg,
+                      &TrayPopup::layoutConvertRequested);
         }
         addAction(r.masked ? QStringLiteral("eyeOff") : QStringLiteral("eye"),
                   QStringLiteral("Mask / reveal"), false, iconFg,
@@ -759,6 +815,8 @@ void TrayPopup::updateContentSize(const QRect &area)
     // Chrome: разделитель + футер + отступы карточки.
     const int chromeH = (m_sep ? m_sep->sizeHint().height() : 0)
                       + (m_footer ? m_footer->sizeHint().height() : 0)
+                      + ((m_convertedBar && m_convertedBar->isVisible())
+                             ? m_convertedBar->sizeHint().height() : 0)
                       + kCardMargins;
 
     int wanted = contentH + chromeH;

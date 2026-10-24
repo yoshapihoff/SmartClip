@@ -49,3 +49,8 @@ Thumbs.db
 dist/
 SmartClip-x86_64.AppImage
 *.AppDir/
+
+# Локальные каталоги сборки (варианты Qt)
+build-linux-*/
+build-macos-*/
+build-windows-*/

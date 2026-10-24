@@ -9,6 +9,7 @@ class QFrame;
 class QVBoxLayout;
 class QLabel;
 class QScrollArea;
+class QPushButton;
 
 /**
  * TrayPopup — СВОЁ всплывающее окно вместо меню десктопа.
@@ -40,6 +41,12 @@ public:
         /** Доступна ли смена раскладки текста (в системе ≥ 2 раскладок).
          *  false — кнопка раскладки в строке не показывается. */
         bool layoutConvertible = false;
+        /**
+         * Строка — ИСХОДНИК последней смены раскладки: исправленный текст уже
+         * лежит в буфере (полоса сверху). Показывается клавиатура-акцентом,
+         * чтобы было видно, откуда именно получился текст в буфере.
+         */
+        bool convertedSource = false;
     };
 
     explicit TrayPopup(QWidget *parent = nullptr);
@@ -50,6 +57,16 @@ public:
 
     /** Показать рядом с точкой anchor (позиция иконки трея/курсора). */
     void showAt(const QPoint &anchor);
+
+    /**
+     * Полоса «исправленный текст в буфере». Смена раскладки кладёт новый текст
+     * в буфер СРАЗУ, а полоса (а) подтверждает это, (б) служит кнопкой
+     * «вставить в прежнее окно»: клик возвращает фокус приложению и жмёт
+     * Ctrl/Cmd+V. Пустой текст — полосу убрать.
+     */
+    void setConvertedText(const QString &text);
+    /** О чём сейчас сообщает полоса (пусто — полосы нет). */
+    QString convertedText() const { return m_convertedText; }
 
 signals:
     void clipChosen(const QString &text);
@@ -64,6 +81,8 @@ signals:
     void helpRequested();
     void aboutRequested();
     void quitRequested();
+    /** Вставить текст в ПРЕЖНЕЕ активное окно (клик по полосе смены раскладки). */
+    void pasteIntoPreviousRequested();
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
@@ -101,4 +120,9 @@ private:
     QVector<RowData> m_rows;
     /** Показывать ли кнопку смены раскладки (≥ 2 раскладок в системе). */
     bool m_layoutConvert = false;
+    /** Полоса «исправленный текст в буфере» (показывается только при непустом). */
+    QWidget *m_convertedBar = nullptr;
+    QLabel *m_convertedLabel = nullptr;
+    QPushButton *m_convertedBtn = nullptr;
+    QString m_convertedText;
 };
